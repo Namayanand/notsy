@@ -1,0 +1,71 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: notsydb
+      POSTGRES_USER: notsy
+      POSTGRES_PASSWORD: notsy123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notsy -d notsydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: notsydb
+      DB_USER: notsy
+      DB_PASSWORD: notsy123
+      AI_SERVICE_URL: http://ai-service:8000
+      FILE_UPLOAD_DIR: /app/uploads
+      SPRING_BOOT_CALLBACK_URL: http://backend:8080
+      CORS_ORIGINS: http://localhost:3000,http://frontend:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      SPRING_BOOT_CALLBACK_URL: http://backend:8080
+      CHROMA_PERSIST_DIR: /app/chroma_db
+      UPLOAD_BASE_DIR: /app/uploads
+    volumes:
+      - ./uploads:/app/uploads
+      - chromadb:/app/chroma_db
+    depends_on:
+      - backend
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_URL: ""
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  chromadb:
