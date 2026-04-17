@@ -43,4 +43,13 @@ public class Message {
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "branch_message_id")
+    private Long branchMessageId;
+
+    @Column(name = "selection_start")
+    private Integer selectionStart;
+
+    @Column(name = "selection_end")
+    private Integer selectionEnd;
 }

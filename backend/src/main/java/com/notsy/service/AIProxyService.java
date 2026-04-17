@@ -66,12 +66,25 @@ public class AIProxyService {
                 .subscribe();
     }
 
-    public ChatResponse chat(Long topicId, String message, List<Map<String, String>> history, String learningMode) {
+    public AIProxyService.ChatResponse chat(Long topicId, String message, List<Map<String, String>> history, String learningMode) {
+        return chat(topicId, message, history, learningMode, false, null, null);
+    }
+
+    public AIProxyService.ChatResponse chat(Long topicId, String message, List<Map<String, String>> history, String learningMode, boolean useWebSearch, String explainDepth) {
+        return chat(topicId, message, history, learningMode, useWebSearch, explainDepth, null);
+    }
+
+    public AIProxyService.ChatResponse chat(Long topicId, String message, List<Map<String, String>> history, String learningMode, boolean useWebSearch, String explainDepth, String systemPrompt) {
         Map<String, Object> requestBody = new java.util.HashMap<>();
         requestBody.put("topic_id", topicId);
         requestBody.put("message", message);
         requestBody.put("history", history);
         requestBody.put("learning_mode", learningMode);
+        requestBody.put("use_web_search", useWebSearch);
+        requestBody.put("explain_depth", explainDepth);
+        if (systemPrompt != null && !systemPrompt.isEmpty()) {
+            requestBody.put("system_prompt", systemPrompt);
+        }
 
         try {
             Map<String, Object> response = aiServiceWebClient.post()

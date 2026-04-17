@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @Builder
@@ -17,5 +18,10 @@ public class MessageResponse {
     private String content;
     private String sources;
     private Integer tokensUsed;
+    private Long branchMessageId;
+    private Integer selectionStart;
+    private Integer selectionEnd;
     private LocalDateTime createdAt;
+    private Boolean hasBranches;
+    private List<MessageBranchInfo> branches;
 }

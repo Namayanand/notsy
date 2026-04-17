@@ -5,6 +5,7 @@ import httpx
 
 from app.models.schemas import EmbedResourceRequest, EmbedStatusResponse, EmbedCallbackRequest
 from app.core.embeddings import embeddings
+from app.core.youtube_loader import is_youtube_url, YouTubeLoader
 from app.services.vector_store import vector_store
 
 logger = logging.getLogger(__name__)
@@ -24,15 +25,32 @@ async def embed_resource_task(request: EmbedResourceRequest):
     user_id = request.user_id
 
     try:
-        # Call the embeddings service
-        chunk_count = embeddings.embed_resource(
-            resource_id=resource_id,
-            topic_id=topic_id,
-            file_path=file_path,
-            source_url=source_url,
-            file_type=file_type,
-            user_id=user_id
-        )
+        chunk_count = 0
+
+        # Handle YouTube URLs specially
+        if source_url and is_youtube_url(source_url):
+            logger.info(f"Processing YouTube URL: {source_url}")
+            youtube_data = YouTubeLoader.load(source_url)
+            if youtube_data.get("chunks"):
+                chunks = youtube_data["chunks"]
+                metadatas = [{
+                    "source": c["source"],
+                    "type": c.get("type", "youtube"),
+                    "topic_id": str(topic_id),
+                    "user_id": str(user_id)
+                } for c in chunks]
+                vector_store.add_documents(topic_id, [c["text"] for c in chunks], metadatas)
+                chunk_count = len(chunks)
+        else:
+            # Standard embedding
+            chunk_count = embeddings.embed_resource(
+                resource_id=resource_id,
+                topic_id=topic_id,
+                file_path=file_path,
+                source_url=source_url,
+                file_type=file_type,
+                user_id=user_id
+            )
 
         # Notify Spring Boot backend
         await callback_success(resource_id, chunk_count)

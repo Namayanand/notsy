@@ -1,0 +1,88 @@
+.roadmap-view {
+  padding: 16px;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  overflow-y: auto;
+}
+
+.roadmap-view h3 {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.roadmap-view .empty-state {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 24px;
+}
+
+.roadmap-tree {
+  display: flex;
+  flex-direction: column;
+}
+
+.roadmap-topic {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 4px 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--bg-primary);
+}
+
+.roadmap-topic:hover {
+  background: var(--bg-tertiary);
+}
+
+.roadmap-topic.active {
+  background: rgba(124, 91, 245, 0.15);
+  border: 1px solid var(--accent);
+}
+
+.roadmap-topic.completed {
+  opacity: 0.7;
+}
+
+.roadmap-topic.completed .topic-status {
+  color: var(--success);
+}
+
+.roadmap-topic.weak .topic-status {
+  color: var(--warning);
+}
+
+.roadmap-topic.in_progress .topic-status {
+  color: var(--accent);
+}
+
+.topic-status {
+  font-size: 14px;
+  width: 20px;
+  text-align: center;
+}
+
+.topic-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.topic-duration {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.topic-difficulty {
+  font-size: 8px;
+  color: var(--accent);
+  letter-spacing: -2px;
+}

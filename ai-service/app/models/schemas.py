@@ -26,7 +26,10 @@ class ChatRequest(BaseModel):
     topic_id: int
     message: str
     history: List[ChatMessage] = Field(default_factory=list)
-    learning_mode: str = "MASTER_THIS"  # GO_CRAZY, DEV_MODE, MASTER_THIS, LAST_MINUTE, TEACH_ME_TECH
+    learning_mode: str = "MASTER_THIS"  # GO_CRAZY, DEV_MODE, MASTER_THIS, LAST_MINUTE, TEACH_ME_TECH, STUDY_GROUP
+    use_web_search: Optional[bool] = False
+    explain_depth: Optional[str] = None  # None, "eli5", "deep"
+    system_prompt: Optional[str] = None  # For branch context injection
 
 
 class SourceData(BaseModel):

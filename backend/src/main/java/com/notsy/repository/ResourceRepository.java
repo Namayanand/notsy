@@ -25,5 +25,8 @@ public interface ResourceRepository extends JpaRepository<Resource, Long> {
     @Query("SELECT r FROM Resource r WHERE r.topic.id = :topicId AND r.topic.notebook.user.id = :userId")
     List<Resource> findByTopicIdAndUserId(@Param("topicId") Long topicId, @Param("userId") Long userId);
 
+    @Query("SELECT r FROM Resource r WHERE r.topic.notebook.user.id = :userId")
+    List<Resource> findByUserId(@Param("userId") Long userId);
+
     void deleteByTopicId(Long topicId);
 }

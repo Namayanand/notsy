@@ -21,8 +21,14 @@ public interface TopicRepository extends JpaRepository<Topic, Long> {
     @Query("SELECT t FROM Topic t WHERE t.id = :id AND t.notebook.user.id = :userId")
     Optional<Topic> findByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
 
+    @Query("SELECT t FROM Topic t WHERE t.id = :id AND EXISTS (SELECT 1 FROM NotebookMembership nm WHERE nm.notebook.id = t.notebook.id AND nm.user.id = :userId)")
+    Optional<Topic> findByIdAndUserIdMembership(@Param("id") Long id, @Param("userId") Long userId);
+
     @Query("SELECT t FROM Topic t WHERE t.id = :topicId AND t.notebook.id = :notebookId AND t.notebook.user.id = :userId")
     Optional<Topic> findByIdAndNotebookIdAndUserId(@Param("topicId") Long topicId, @Param("notebookId") Long notebookId, @Param("userId") Long userId);
+
+    @Query("SELECT t FROM Topic t WHERE t.id = :topicId AND t.notebook.id = :notebookId AND EXISTS (SELECT 1 FROM NotebookMembership nm WHERE nm.notebook.id = t.notebook.id AND nm.user.id = :userId)")
+    Optional<Topic> findByIdAndNotebookIdAndUserIdMembership(@Param("topicId") Long topicId, @Param("notebookId") Long notebookId, @Param("userId") Long userId);
 
     @Query("SELECT COALESCE(MAX(t.orderIndex), 0) FROM Topic t WHERE t.notebook.id = :notebookId AND t.parentTopic IS NULL")
     Integer findMaxOrderIndexForNotebook(@Param("notebookId") Long notebookId);

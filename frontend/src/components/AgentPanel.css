@@ -1,0 +1,82 @@
+.agent-panel {
+  padding: 16px;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.agent-panel h3 {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.agent-item:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(124, 91, 245, 0.05);
+}
+
+.agent-item.active {
+  border-color: var(--accent);
+  background: rgba(124, 91, 245, 0.1);
+}
+
+.agent-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.agent-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.agent-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.agent-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.active-indicator {
+  color: var(--accent);
+  font-size: 12px;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

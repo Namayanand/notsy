@@ -21,6 +21,8 @@ public class ConversationResponse {
     private String branchContext;
     private String branchStatus;
     private Long topicId;
+    private Long branchOfId;
+    private Integer branchDepth;
     private List<MessageResponse> messages;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

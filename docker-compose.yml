@@ -16,6 +16,18 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -32,8 +44,12 @@ services:
       FILE_UPLOAD_DIR: /app/uploads
       SPRING_BOOT_CALLBACK_URL: http://backend:8080
       CORS_ORIGINS: http://localhost:3000,http://frontend:3000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - ./uploads:/app/uploads
@@ -49,11 +65,14 @@ services:
       SPRING_BOOT_CALLBACK_URL: http://backend:8080
       CHROMA_PERSIST_DIR: /app/chroma_db
       UPLOAD_BASE_DIR: /app/uploads
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     volumes:
       - ./uploads:/app/uploads
       - chromadb:/app/chroma_db
     depends_on:
       - backend
+      - redis
 
   frontend:
     build:
@@ -69,3 +88,4 @@ services:
 volumes:
   pgdata:
   chromadb:
+  redisdata:

@@ -19,9 +19,34 @@ public class NotebookResponse {
     private String colorTheme;
     private Boolean isPublic;
     private Long userId;
+    private OwnerInfo owner;
     private List<TopicSummaryResponse> topics;
+    private List<MemberInfo> members;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private Boolean isShared;
+    private String sharedRole;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OwnerInfo {
+        private Long id;
+        private String name;
+        private String email;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MemberInfo {
+        private Long userId;
+        private String name;
+        private String email;
+        private String role;
+    }
 
     @Data
     @Builder

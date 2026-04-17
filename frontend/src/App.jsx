@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import Notebook from './pages/Notebook';
 import GraphPage from './pages/GraphPage';
 import Profile from './pages/Profile';
+import StudySession from './pages/StudySession';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/notebooks/:nbId/topics/:topicId/conversations/:convId" element={<AuthGuard><Layout><Notebook /></Layout></AuthGuard>} />
           <Route path="/notebooks/:id/graph" element={<AuthGuard><Layout><GraphPage /></Layout></AuthGuard>} />
           <Route path="/profile" element={<AuthGuard><Layout><Profile /></Layout></AuthGuard>} />
+          <Route path="/study" element={<AuthGuard><Layout><StudySession /></Layout></AuthGuard>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>

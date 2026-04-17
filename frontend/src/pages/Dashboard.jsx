@@ -14,9 +14,10 @@ const COLOR_OPTIONS = [
 ];
 
 const NOTEBOOK_GRID = [
-  { icon: '📐', title: 'Create Diagram', desc: 'Visualize connections' },
-  { icon: '💡', title: 'Ask AI', desc: 'Get instant answers' },
-  { icon: '🔗', title: 'Add Resources', desc: 'PDFs, links, images' },
+  { icon: '🧠', title: 'AI Study Session', desc: 'Learn with AI agents', path: '/study' },
+  { icon: '📐', title: 'Create Diagram', desc: 'Visualize connections', path: '/notebooks' },
+  { icon: '💡', title: 'Ask AI', desc: 'Get instant answers', path: '/notebooks' },
+  { icon: '🔗', title: 'Add Resources', desc: 'PDFs, links, images', path: '/notebooks' },
 ];
 
 export default function Dashboard() {
@@ -150,7 +151,7 @@ export default function Dashboard() {
       {/* Feature hints */}
       <div className="feature-grid">
         {NOTEBOOK_GRID.map((f) => (
-          <div key={f.title} className="feature-card">
+          <div key={f.title} className="feature-card" onClick={() => navigate(f.path || '/')}>
             <span className="feature-icon">{f.icon}</span>
             <div>
               <h4>{f.title}</h4>

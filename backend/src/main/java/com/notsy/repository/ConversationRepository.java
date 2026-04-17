@@ -22,14 +22,26 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
     @Query("SELECT c FROM Conversation c WHERE c.id = :id AND c.topic.notebook.user.id = :userId")
     Optional<Conversation> findByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
 
+    @Query("SELECT c FROM Conversation c WHERE c.id = :id AND EXISTS (SELECT 1 FROM NotebookMembership nm WHERE nm.notebook.id = c.topic.notebook.id AND nm.user.id = :userId)")
+    Optional<Conversation> findByIdAndUserIdMembership(@Param("id") Long id, @Param("userId") Long userId);
+
     @Query("SELECT c FROM Conversation c WHERE c.id = :id AND c.topic.id = :topicId AND c.topic.notebook.user.id = :userId")
     Optional<Conversation> findByIdAndTopicIdAndUserId(@Param("id") Long id, @Param("topicId") Long topicId, @Param("userId") Long userId);
+
+    @Query("SELECT c FROM Conversation c WHERE c.id = :id AND c.topic.id = :topicId AND EXISTS (SELECT 1 FROM NotebookMembership nm WHERE nm.notebook.id = c.topic.notebook.id AND nm.user.id = :userId)")
+    Optional<Conversation> findByIdAndTopicIdAndUserIdMembership(@Param("id") Long id, @Param("topicId") Long topicId, @Param("userId") Long userId);
 
     @Query("SELECT c FROM Conversation c WHERE c.parentConversation.id = :parentId AND c.topic.notebook.user.id = :userId")
     List<Conversation> findBranchesByParentIdAndUserId(@Param("parentId") Long parentId, @Param("userId") Long userId);
 
+    @Query("SELECT c FROM Conversation c WHERE c.parentConversation.id = :parentId AND EXISTS (SELECT 1 FROM NotebookMembership nm WHERE nm.notebook.id = c.topic.notebook.id AND nm.user.id = :userId)")
+    List<Conversation> findBranchesByParentIdAndUserIdMembership(@Param("parentId") Long parentId, @Param("userId") Long userId);
+
     @Query("SELECT c FROM Conversation c WHERE c.topic.id = :topicId AND c.topic.notebook.user.id = :userId")
     List<Conversation> findByTopicIdAndUserId(@Param("topicId") Long topicId, @Param("userId") Long userId);
+
+    @Query("SELECT c FROM Conversation c WHERE c.topic.id = :topicId AND EXISTS (SELECT 1 FROM NotebookMembership nm WHERE nm.notebook.id = c.topic.notebook.id AND nm.user.id = :userId)")
+    List<Conversation> findByTopicIdAndUserIdMembership(@Param("topicId") Long topicId, @Param("userId") Long userId);
 
     void deleteByTopicId(Long topicId);
 }

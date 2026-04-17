@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 MODES = {
     "GO_CRAZY": {
@@ -7,7 +7,7 @@ connections beyond the provided material. Use the retrieved context as a startin
 to explore related concepts, analogies, and ideas. Encourage curiosity and lateral thinking.""",
         "temperature": 0.9,
         "top_k_chunks": 3,
-        "use_web": False,
+        "use_web": True,
         "max_tokens": 1500
     },
     "DEV_MODE": {
@@ -45,6 +45,17 @@ from tutorials and documentation in the retrieved material. Make it engaging and
         "top_k_chunks": 6,
         "use_web": False,
         "max_tokens": 1800
+    },
+    "STUDY_GROUP": {
+        "system_prompt": """You are a collaborative study group facilitator. Cross-reference materials
+from all group members to provide comprehensive answers. When multiple perspectives exist, synthesize
+them. Encourage peer learning and collaborative knowledge building. Acknowledge when information
+comes from a specific member's materials.""",
+        "temperature": 0.4,
+        "top_k_chunks": 10,
+        "use_web": False,
+        "max_tokens": 2000,
+        "collaborative": True
     }
 }
 
@@ -54,16 +65,32 @@ def get_mode_config(learning_mode: str) -> Dict[str, Any]:
     return MODES.get(learning_mode.upper(), MODES["MASTER_THIS"])
 
 
-def build_system_prompt(learning_mode: str, context: str = "") -> str:
+def build_system_prompt(learning_mode: str, context: str = "", depth: Optional[str] = None) -> str:
     """Build a system prompt with context for the given learning mode."""
     config = get_mode_config(learning_mode)
 
-    if context:
-        return f"""{config['system_prompt']}
+    depth_instruction = ""
+    if depth == "eli5":
+        depth_instruction = """
+DEPTH INSTRUCTION: Explain this concept as if talking to a 5-year-old. Use the simplest words
+possible, fun analogies, and avoid all jargon. One or two short sentences only."""
+    elif depth == "deep":
+        depth_instruction = """
+DEPTH INSTRUCTION: Go deep into this topic. Provide advanced analysis, edge cases, theoretical
+underpinnings, and connect to related advanced concepts. Assume strong background knowledge."""
+
+    collaborative_note = ""
+    if config.get("collaborative"):
+        collaborative_note = """
+
+COLLABORATIVE MODE: You are working with shared materials from multiple study group members.
+Actively cross-reference between members' uploaded content when answering."""
+
+    base = f"""{config['system_prompt']}{collaborative_note}
 
 Relevant study material:
 {context}
+{depth_instruction if depth_instruction else ""}
 
 Always base your answer on the provided study material when available."""
-    else:
-        return config["system_prompt"]
+    return base

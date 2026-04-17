@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { parseJsonField } from '../api/client';
 import {
-  getConversation, chat, branchConversation, mergeBranch, getBranches,
+  getConversation, chat, branchConversation, branchFromMessage, mergeBranch, getBranches,
+  getBranchesFromMessage, getBreadcrumb, navigateToParent,
 } from '../api/conversations';
 import './ChatInterface.css';
 
@@ -117,6 +118,84 @@ function renderMarkdown(text) {
   return elements;
 }
 
+// Render message content with highlighted branch texts
+function renderMessageContentWithBranches(content, branches, onBranchClick) {
+  if (!content) return null;
+  if (!branches || branches.length === 0) {
+    return renderMarkdown(content);
+  }
+
+  // Sort branches by selectionStart descending to process from end to beginning
+  const sortedBranches = [...branches].sort((a, b) => b.selectionStart - a.selectionStart);
+
+  const parts = [];
+  let lastEnd = content.length;
+
+  // Build parts array from end to start
+  for (const branch of sortedBranches) {
+    const { selectionStart, selectionEnd } = branch;
+    if (selectionStart != null && selectionEnd != null && selectionStart < selectionEnd && selectionEnd <= content.length) {
+      // Add the part after this branch
+      if (lastEnd > selectionEnd) {
+        parts.unshift({ type: 'text', content: content.substring(selectionEnd, lastEnd) });
+      }
+      // Add the branched part
+      parts.unshift({
+        type: 'branch',
+        content: content.substring(selectionStart, selectionEnd),
+        branch
+      });
+      lastEnd = selectionStart;
+    }
+  }
+
+  // Add the remaining text at the beginning
+  if (lastEnd > 0) {
+    parts.unshift({ type: 'text', content: content.substring(0, lastEnd) });
+  }
+
+  // Render the parts
+  const elements = [];
+  parts.forEach((part, idx) => {
+    if (part.type === 'branch') {
+      const anchorText = part.branch.branchContext
+        ? part.branch.branchContext.slice(0, 20)
+        : (part.branch.title?.slice(0, 20) || 'branch');
+      elements.push(
+        <span
+          key={`branch-${idx}`}
+          className="branched-text-wrapper"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onBranchClick(part.branch);
+          }}
+        >
+          <span
+            className="branched-text"
+            title={`Click to go to branch: ${part.branch.title}`}
+          >
+            {part.content}
+          </span>
+          <span className="branch-badge" title={`Click to go to branch: ${part.branch.title}`}>
+            ⎇ {anchorText}
+          </span>
+        </span>
+      );
+    } else {
+      // For text parts, render markdown
+      const rendered = renderMarkdown(part.content);
+      if (rendered) {
+        rendered.forEach((el, i) => {
+          elements.push(<span key={`text-${idx}-${i}`}>{el}</span>);
+        });
+      }
+    }
+  });
+
+  return elements.length > 0 ? elements : renderMarkdown(content);
+}
+
 export default function ChatInterface({ topic, conversationId, onBack }) {
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -127,6 +206,30 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
   const [showBranches, setShowBranches] = useState(false);
   const [currentMode, setCurrentMode] = useState('MASTER_THIS');
   const [copiedId, setCopiedId] = useState(null);
+  const [useWebSearch, setUseWebSearch] = useState(false);
+  const [explainDepth, setExplainDepth] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+
+  // Message-level branching state
+  const [selectedMessage, setSelectedMessage] = useState(null);
+  const [selectionRange, setSelectionRange] = useState(null);
+  const [breadcrumb, setBreadcrumb] = useState([]);
+  const [messageBranches, setMessageBranches] = useState([]);
+
+  // Parent reference for navigation
+  const [parentConversationId, setParentConversationId] = useState(null);
+  const [parentTitle, setParentTitle] = useState(null);
+
+  // Selection popover state
+  const [selectionPopover, setSelectionPopover] = useState(null);
+
+  // Tab state for branch navigation
+  const [activeTab, setActiveTab] = useState('main');
+  const [openTabs, setOpenTabs] = useState([]);
+
+  // Depth warning state
+  const [showDepthWarning, setShowDepthWarning] = useState(false);
+
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -147,6 +250,14 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
       setConversation(conv);
       setCurrentMode(conv.learningMode || 'MASTER_THIS');
       setMessages(conv.messages || []);
+
+      // Load breadcrumb if this is a branch
+      if (conv.branchOfId) {
+        try {
+          const breadcrumbRes = await getBreadcrumb(conv.branchOfId);
+          setBreadcrumb(breadcrumbRes.data.data || []);
+        } catch {}
+      }
     } catch (err) {
       console.error('Failed to load conversation', err);
     } finally {
@@ -175,20 +286,89 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
     setInput('');
     setSending(true);
 
+    // Build history for streaming
+    const history = messages.map(m => ({ role: m.role, content: m.content }));
+
     try {
-      const res = await chat(topic.id, conversationId, sentInput);
-      const aiMsg = res.data.data;
-      if (aiMsg) {
-        setMessages((prev) => [...prev, {
-          id: aiMsg.id || Date.now() + 1,
-          role: aiMsg.role || 'assistant',
-          content: aiMsg.content,
-          sources: parseJsonField(aiMsg.sources),
-          tokensUsed: aiMsg.tokensUsed,
-          createdAt: aiMsg.createdAt,
+      // Try streaming endpoint first
+      const streamUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/api/chat/${conversationId}/stream`;
+
+      const response = await fetch(streamUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: sentInput,
+          history: history,
+          learningMode: currentMode,
+          useWebSearch: useWebSearch,
+          explainDepth: explainDepth,
+        }),
+      });
+
+      if (response.ok && response.body) {
+        // Streaming response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullContent = '';
+        let sources = [];
+        let tempMessageId = Date.now() + 1;
+
+        // Add placeholder message
+        setMessages(prev => [...prev, {
+          id: tempMessageId,
+          role: 'assistant',
+          content: '',
+          sources: [],
         }]);
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.type === 'token' && data.data?.token) {
+                  fullContent += data.data.token;
+                  setMessages(prev => prev.map(m =>
+                    m.id === tempMessageId ? { ...m, content: fullContent } : m
+                  ));
+                } else if (data.type === 'sources' && data.data?.sources) {
+                  sources = data.data.sources;
+                } else if (data.type === 'done') {
+                  setMessages(prev => prev.map(m =>
+                    m.id === tempMessageId ? {
+                      ...m,
+                      sources: sources,
+                      tokensUsed: data.data?.tokensUsed || 0,
+                    } : m
+                  ));
+                }
+              } catch {}
+            }
+          }
+        }
+      } else {
+        // Fallback to non-streaming
+        const res = await chat(topic.id, conversationId, sentInput, currentMode);
+        const aiMsg = res.data.data;
+        if (aiMsg) {
+          setMessages((prev) => [...prev, {
+            id: aiMsg.id || Date.now() + 1,
+            role: aiMsg.role || 'assistant',
+            content: aiMsg.content,
+            sources: parseJsonField(aiMsg.sources),
+            tokensUsed: aiMsg.tokensUsed,
+            createdAt: aiMsg.createdAt,
+          }]);
+        }
       }
-    } catch {
+    } catch (err) {
+      console.error('Chat error:', err);
       setMessages((prev) => [...prev, {
         id: Date.now() + 1,
         role: 'assistant',
@@ -197,6 +377,12 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
     } finally {
       setSending(false);
       inputRef.current?.focus();
+      // Mark that this tab has sent a message (for empty branch auto-discard)
+      if (activeTab !== 'main') {
+        setOpenTabs(prev => prev.map(tab =>
+          tab.id === activeTab ? { ...tab, hasSentMessages: true } : tab
+        ));
+      }
     }
   };
 
@@ -211,6 +397,246 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
       loadBranches();
     } catch {
       alert('Failed to create branch');
+    }
+  };
+
+  // Handle text selection for message branching - immediately create branch
+  const handleTextSelect = async (msg, selection) => {
+    const anchorText = selection?.text || msg.content.substring(0, 50);
+
+    try {
+      // Create branch immediately with anchor text
+      const res = await branchFromMessage(topic.id, conversationId, {
+        parentMessageId: msg.id,
+        selectionStart: selection?.start,
+        selectionEnd: selection?.end,
+        anchorText: anchorText,
+        learningMode: currentMode,
+      });
+
+      const branchData = res.data.data;
+
+      // Store parent info for navigation
+      setParentConversationId(conversationId);
+      setParentTitle(branchData.parentConversation?.title || conversation?.title);
+
+      // Check if this is a deep branch (depth >= 3) and show warning
+      if (branchData.branchConversation?.branchDepth >= 3) {
+        setShowDepthWarning(true);
+        setTimeout(() => setShowDepthWarning(false), 5000);
+      }
+
+      // Navigate to the branch conversation
+      setConversation(branchData.branchConversation);
+      setMessages(branchData.branchConversation.messages || []);
+      setBreadcrumb(branchData.ancestry || []);
+
+      // Clear selection popover
+      setSelectionPopover(null);
+      setSelectedMessage(null);
+      setSelectionRange(null);
+
+      // Auto-send the first message with the anchor text
+      const branchConversationId = branchData.branchConversation.id;
+      const systemPrompt = branchData.systemPrompt;
+      const parentContext = branchData.parentContextMessages;
+
+      // Simulate user sending the anchor text as first message
+      const firstMessage = { role: 'user', content: anchorText, id: Date.now() };
+      setMessages([firstMessage]);
+      setInput('');
+
+      // Send the message automatically
+      await sendAutoMessage(branchConversationId, anchorText, systemPrompt, parentContext);
+
+    } catch (err) {
+      console.error('Failed to create branch:', err);
+      alert(err.response?.data?.message || 'Failed to create branch');
+    }
+  };
+
+  // Send message automatically when branching
+  const sendAutoMessage = async (convId, message, systemPrompt, parentContext) => {
+    setSending(true);
+
+    try {
+      const streamUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/api/chat/${convId}/stream`;
+
+      const history = [];
+
+      const response = await fetch(streamUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: message,
+          history: history,
+          learningMode: currentMode,
+          useWebSearch: useWebSearch,
+          explainDepth: explainDepth,
+          systemPrompt: systemPrompt,
+        }),
+      });
+
+      if (response.ok && response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullContent = '';
+        let sources = [];
+        let tempMessageId = Date.now() + 1;
+
+        setMessages(prev => [...prev, {
+          id: tempMessageId,
+          role: 'assistant',
+          content: '',
+          sources: [],
+        }]);
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.type === 'token' && data.data?.token) {
+                  fullContent += data.data.token;
+                  setMessages(prev => prev.map(m =>
+                    m.id === tempMessageId ? { ...m, content: fullContent } : m
+                  ));
+                } else if (data.type === 'sources' && data.data?.sources) {
+                  sources = data.data.sources;
+                } else if (data.type === 'done') {
+                  setMessages(prev => prev.map(m =>
+                    m.id === tempMessageId ? {
+                      ...m,
+                      sources: sources,
+                      tokensUsed: data.data?.tokensUsed || 0,
+                    } : m
+                  ));
+                }
+              } catch {}
+            }
+          }
+        }
+      } else {
+        // Fallback to non-streaming
+        const res = await chat(topic.id, convId, message, currentMode);
+        const aiMsg = res.data.data;
+        if (aiMsg) {
+          setMessages((prev) => [...prev, {
+            id: aiMsg.id || Date.now() + 1,
+            role: aiMsg.role || 'assistant',
+            content: aiMsg.content,
+            sources: parseJsonField(aiMsg.sources),
+            tokensUsed: aiMsg.tokensUsed,
+            createdAt: aiMsg.createdAt,
+          }]);
+        }
+      }
+    } catch (err) {
+      console.error('Auto-send error:', err);
+      setMessages((prev) => [...prev, {
+        id: Date.now() + 1,
+        role: 'assistant',
+        content: "Sorry, I couldn't process your message. Please try again.",
+      }]);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Navigate back to parent conversation
+  const handleNavigateToParent = async () => {
+    if (!conversation?.branchOfId) {
+      // If no branchOfId but we have parent info, use that
+      if (parentConversationId) {
+        try {
+          const res = await getConversation(topic.id, parentConversationId);
+          const parentConv = res.data.data;
+
+          setConversation(parentConv);
+          setMessages(parentConv.messages || []);
+          setBreadcrumb([]);
+          setParentConversationId(null);
+          setParentTitle(null);
+        } catch (err) {
+          console.error('Failed to navigate to parent:', err);
+          alert('Failed to navigate to parent');
+        }
+      }
+      return;
+    }
+
+    try {
+      const res = await navigateToParent(conversation.branchOfId);
+      const navData = res.data.data;
+
+      setParentConversationId(conversation.id);
+      setParentTitle(conversation.title);
+
+      setConversation(navData.parentConversation);
+      setMessages(navData.parentConversation.messages || []);
+      setBreadcrumb(navData.ancestry || []);
+    } catch (err) {
+      console.error('Failed to navigate to parent:', err);
+      alert('Failed to navigate to parent');
+    }
+  };
+
+  // Navigate to a branch conversation
+  const handleNavigateToBranch = async (branch) => {
+    try {
+      const branchId = branch.branchId || branch.branchConversationId;
+      const res = await getConversation(topic.id, branch.branchConversationId || branchId);
+      const branchConv = res.data.data;
+
+      // Store parent info for navigation
+      setParentConversationId(conversationId);
+      setParentTitle(conversation?.title);
+
+      setConversation(branchConv);
+      setMessages(branchConv.messages || []);
+      // Load breadcrumb for this branch
+      try {
+        const breadcrumbRes = await getBreadcrumb(branchId);
+        setBreadcrumb(breadcrumbRes.data.data || []);
+      } catch {}
+    } catch (err) {
+      console.error('Failed to navigate to branch:', err);
+      alert('Failed to navigate to branch');
+    }
+  };
+
+  // Close a branch tab - auto-discard if no messages sent
+  const handleCloseTab = async (tab) => {
+    const tabData = openTabs.find(t => t.id === tab.id);
+    if (!tabData) return;
+
+    if (!tabData.hasSentMessages) {
+      // Auto-discard empty branch
+      try {
+        await mergeBranch(topic.id, conversationId, {
+          branchConversationId: tab.conversationId,
+          action: 'discard'
+        });
+      } catch (err) {
+        console.error('Failed to discard empty branch:', err);
+      }
+    }
+
+    // Remove tab from openTabs
+    setOpenTabs(prev => prev.filter(t => t.id !== tab.id));
+
+    // If closing active tab, switch to main
+    if (activeTab === tab.id) {
+      setActiveTab('main');
+      if (conversation?.branchOfId) {
+        handleNavigateToParent();
+      }
     }
   };
 
@@ -296,8 +722,64 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
             </svg>
             Branch
           </button>
+          <button className="btn-ghost" onClick={() => setShowSettings(!showSettings)} title="Chat settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="2" />
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" strokeWidth="2" />
+            </svg>
+          </button>
         </div>
       </div>
+
+      {/* Settings Panel */}
+      {showSettings && (
+        <div className="settings-panel animate-slide-in-up">
+          <div className="settings-header">
+            <span>Chat Settings</span>
+            <button className="btn-ghost" onClick={() => setShowSettings(false)}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div className="settings-content">
+            <div className="setting-item">
+              <div className="setting-info">
+                <span className="setting-label">Web Search</span>
+                <span className="setting-desc">Search the web for live info</span>
+              </div>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={useWebSearch}
+                  onChange={(e) => setUseWebSearch(e.target.checked)}
+                />
+                <span className="toggle-slider"></span>
+              </label>
+            </div>
+            <div className="setting-item">
+              <div className="setting-info">
+                <span className="setting-label">Explain Depth</span>
+                <span className="setting-desc">Adjust explanation level</span>
+              </div>
+              <div className="depth-selector">
+                <button
+                  className={`depth-btn ${explainDepth === null ? 'active' : ''}`}
+                  onClick={() => setExplainDepth(null)}
+                >Normal</button>
+                <button
+                  className={`depth-btn ${explainDepth === 'eli5' ? 'active' : ''}`}
+                  onClick={() => setExplainDepth('eli5')}
+                >ELI5</button>
+                <button
+                  className={`depth-btn ${explainDepth === 'deep' ? 'active' : ''}`}
+                  onClick={() => setExplainDepth('deep')}
+                >Deep</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Branches Panel */}
       {showBranches && (
@@ -343,6 +825,108 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Back to Parent Toggle Pill (shown when in a branch) */}
+      {(conversation?.isBranch || breadcrumb.length > 0) && (
+        <div className="back-to-parent-pill animate-slide-in-up">
+          <button className="back-to-parent-btn" onClick={handleNavigateToParent}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Back to parent: {parentTitle || (breadcrumb.length > 0 ? breadcrumb[0]?.title : 'parent')}
+          </button>
+        </div>
+      )}
+
+      {/* Tab Bar (shown when there are branches) */}
+      {(openTabs.length > 0 || conversation?.isBranch) && (
+        <div className="chat-tab-bar animate-slide-in-up">
+          <button
+            className={`tab-item ${activeTab === 'main' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('main');
+              if (conversation?.branchOfId) {
+                handleNavigateToParent();
+              }
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+              <path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            {topic.title.length > 18 ? topic.title.slice(0, 18) + '...' : topic.title}
+          </button>
+          {openTabs.map((tab) => (
+            <button
+              key={tab.id}
+              className={`tab-item ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab(tab.id);
+                handleNavigateToBranch({ branchConversationId: tab.conversationId, branchId: tab.id });
+              }}
+            >
+              <button
+                className="tab-close-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCloseTab(tab);
+                }}
+              >
+                <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+                  <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                <path d="M6 3v12M18 3v12M6 9a3 3 0 100-6 3 3 0 000 6zM18 9a3 3 0 100-6 3 3 0 000 6zM6 15a3 3 0 100 6 3 3 0 000-6zM18 15a3 3 0 100 6 3 3 0 000-6z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              {tab.title.length > 20 ? tab.title.slice(0, 20) + '...' : tab.title}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Depth Warning */}
+      {showDepthWarning && (
+        <div className="depth-warning animate-slide-in-up">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path d="M12 9v4M12 17h.01M12 3l9 18H3L12 3z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span>You're branching deep (3+ levels). Consider returning to parent to keep context clear.</span>
+          <button className="btn-ghost" onClick={() => setShowDepthWarning(false)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Selection Popover - Single Button */}
+      {selectionPopover && (
+        <div
+          className="selection-popover-wrapper"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectionPopover(null);
+          }}
+        >
+          <div
+            className="selection-popover selection-popover-single animate-fade-in"
+            style={{
+              left: selectionPopover.position.x,
+              top: selectionPopover.position.y,
+            }}
+          >
+            <button
+              className="branch-from-selection-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleTextSelect(selectionPopover.message, selectionPopover.selection);
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <path d="M6 3v12M18 3v12M6 9a3 3 0 100-6 3 3 0 000 6zM18 9a3 3 0 100-6 3 3 0 000 6zM6 15a3 3 0 100 6 3 3 0 000-6zM18 15a3 3 0 100 6 3 3 0 000-6z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              ⎇ Branch from here
+            </button>
+          </div>
         </div>
       )}
 
@@ -414,11 +998,49 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
                   )}
                 </div>
                 <div className="message-body">
-                  <div className={`message-content ${msg.role === 'user' ? 'user-bubble' : 'ai-bubble'}`}>
+                  <div
+                    className={`message-content ${msg.role === 'user' ? 'user-bubble' : 'ai-bubble'}`}
+                    onMouseUp={(e) => {
+                      // Clear any existing popover
+                      setSelectionPopover(null);
+
+                      const selection = window.getSelection();
+                      const text = selection.toString().trim();
+                      if (text && text.length > 2 && msg.role === 'assistant') {
+                        const contentText = msg.content;
+                        const start = contentText.indexOf(text);
+                        if (start !== -1) {
+                          // Show popover near the selection
+                          const range = selection.getRangeAt(0);
+                          const rect = range.getBoundingClientRect();
+                          setSelectionPopover({
+                            message: msg,
+                            selection: { start, end: start + text.length, text },
+                            position: {
+                              x: rect.left + rect.width / 2,
+                              y: rect.top - 10
+                            }
+                          });
+                        }
+                      }
+                    }}
+                  >
                     {msg.role === 'assistant'
-                      ? renderMarkdown(msg.content)
+                      ? renderMessageContentWithBranches(msg.content, msg.branches, handleNavigateToBranch)
                       : msg.content
                     }
+                    {msg.role === 'assistant' && window.getSelection()?.toString()?.trim() && (
+                      <button
+                        className="branch-from-selection-btn"
+                        onClick={() => handleTextSelect(msg, null)}
+                        title="Branch from this message"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                          <path d="M6 3v12M18 3v12M6 9a3 3 0 100-6 3 3 0 000 6zM18 9a3 3 0 100-6 3 3 0 000 6zM6 15a3 3 0 100 6 3 3 0 000-6zM18 15a3 3 0 100 6 3 3 0 000-6z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                        Branch
+                      </button>
+                    )}
                   </div>
                   <div className="message-footer">
                     {msg.sources && renderSources(msg.sources)}
@@ -485,7 +1107,11 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={`Ask about ${topic.title}...`}
+            placeholder={
+              conversation?.isBranch
+                ? `Dig deeper into ${conversation.title || 'this topic'}...`
+                : `Ask about ${topic.title}...`
+            }
             disabled={sending}
             className="chat-input-field"
           />

@@ -15,10 +15,13 @@ export const AuthProvider = ({ children }) => {
     }
     try {
       const res = await getCurrentUser();
-      setUser(res.data.data);
+      const userData = res.data.data;
+      setUser(userData);
+      localStorage.setItem('userId', userData.id);
     } catch {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
+      localStorage.removeItem('userId');
     } finally {
       setLoading(false);
     }
@@ -33,6 +36,7 @@ export const AuthProvider = ({ children }) => {
     const { accessToken, refreshToken, user: userData } = res.data.data;
     localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
+    localStorage.setItem('userId', userData.id);
     setUser(userData);
     return userData;
   };
@@ -42,6 +46,7 @@ export const AuthProvider = ({ children }) => {
     const { accessToken, refreshToken, user: userData } = res.data.data;
     localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
+    localStorage.setItem('userId', userData.id);
     setUser(userData);
     return userData;
   };
@@ -49,6 +54,7 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
+    localStorage.removeItem('userId');
     setUser(null);
   };
 

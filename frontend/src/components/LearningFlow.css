@@ -1,0 +1,95 @@
+.learning-flow {
+  padding: 24px;
+}
+
+.learning-flow.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+}
+
+.learning-flow .empty-state {
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.flow-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  border-left: 3px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.flow-step:hover {
+  background: var(--bg-tertiary);
+}
+
+.flow-step.in_progress {
+  border-left-color: var(--accent);
+  animation: pulse 1.5s infinite;
+}
+
+.flow-step.completed {
+  border-left-color: var(--success);
+  opacity: 0.8;
+}
+
+.flow-step.pending {
+  opacity: 0.5;
+}
+
+.step-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.step-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.step-agent {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.step-action {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.step-result {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  padding: 8px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+}
+
+.step-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(124, 91, 245, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(124, 91, 245, 0); }
+}

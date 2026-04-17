@@ -3,10 +3,9 @@ package com.notsy.controller;
 import com.notsy.dto.request.ChatRequest;
 import com.notsy.dto.request.CreateBranchRequest;
 import com.notsy.dto.request.CreateConversationRequest;
+import com.notsy.dto.request.CreateMessageBranchRequest;
 import com.notsy.dto.request.MergeBranchRequest;
-import com.notsy.dto.response.ApiResponse;
-import com.notsy.dto.response.ConversationResponse;
-import com.notsy.dto.response.MessageResponse;
+import com.notsy.dto.response.*;
 import com.notsy.entity.User;
 import com.notsy.service.AuthService;
 import com.notsy.service.ConversationService;
@@ -107,5 +106,16 @@ public class ConversationController {
         User user = authService.getCurrentUser(userDetails.getUsername());
         List<ConversationResponse> branches = conversationService.getBranches(topicId, conversationId, user);
         return ResponseEntity.ok(ApiResponse.success(branches));
+    }
+
+    @PostMapping("/{conversationId}/branch-from-message")
+    public ResponseEntity<ApiResponse<BranchNavigationResponse>> branchFromMessage(
+            @PathVariable Long topicId,
+            @PathVariable Long conversationId,
+            @Valid @RequestBody CreateMessageBranchRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        User user = authService.getCurrentUser(userDetails.getUsername());
+        BranchNavigationResponse branch = conversationService.branchFromMessage(topicId, conversationId, request, user);
+        return ResponseEntity.ok(ApiResponse.success("Branch created from message", branch));
     }
 }

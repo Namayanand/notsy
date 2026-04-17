@@ -7,9 +7,12 @@ import com.notsy.dto.response.ConversationResponse;
 import com.notsy.dto.response.ResourceResponse;
 import com.notsy.dto.response.TopicResponse;
 import com.notsy.entity.Notebook;
+import com.notsy.entity.NotebookMembership;
 import com.notsy.entity.Topic;
 import com.notsy.entity.User;
+import com.notsy.exception.BadRequestException;
 import com.notsy.exception.ResourceNotFoundException;
+import com.notsy.repository.NotebookMembershipRepository;
 import com.notsy.repository.TopicRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -25,6 +28,7 @@ public class TopicService {
     private final TopicRepository topicRepository;
     private final NotebookService notebookService;
     private final AIProxyService aiProxyService;
+    private final NotebookMembershipRepository membershipRepository;
 
     @Transactional(readOnly = true)
     public List<TopicResponse> getRootTopics(Long notebookId, User user) {
@@ -37,6 +41,12 @@ public class TopicService {
 
     @Transactional
     public TopicResponse createTopic(Long notebookId, CreateTopicRequest request, User user) {
+        // Check if user can edit (owner or editor)
+        NotebookMembership.Role role = getUserRole(notebookId, user.getId());
+        if (role == null || role == NotebookMembership.Role.VIEWER) {
+            throw new BadRequestException("You don't have permission to add topics to this notebook");
+        }
+
         Notebook notebook = notebookService.getNotebookEntity(notebookId, user);
 
         Integer orderIndex = request.getOrderIndex();
@@ -50,7 +60,7 @@ public class TopicService {
 
         Topic parentTopic = null;
         if (request.getParentTopicId() != null) {
-            parentTopic = topicRepository.findByIdAndNotebookIdAndUserId(request.getParentTopicId(), notebookId, user.getId())
+            parentTopic = topicRepository.findByIdAndNotebookIdAndUserIdMembership(request.getParentTopicId(), notebookId, user.getId())
                     .orElseThrow(() -> new ResourceNotFoundException("Parent topic not found"));
         }
 
@@ -70,14 +80,14 @@ public class TopicService {
 
     @Transactional(readOnly = true)
     public TopicResponse getTopic(Long notebookId, Long topicId, User user) {
-        Topic topic = topicRepository.findByIdAndNotebookIdAndUserId(topicId, notebookId, user.getId())
+        Topic topic = topicRepository.findByIdAndNotebookIdAndUserIdMembership(topicId, notebookId, user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Topic", topicId));
         return toTopicResponse(topic, true);
     }
 
     @Transactional
     public TopicResponse updateTopic(Long notebookId, Long topicId, UpdateTopicRequest request, User user) {
-        Topic topic = topicRepository.findByIdAndNotebookIdAndUserId(topicId, notebookId, user.getId())
+        Topic topic = topicRepository.findByIdAndNotebookIdAndUserIdMembership(topicId, notebookId, user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Topic", topicId));
 
         if (request.getTitle() != null) {
@@ -99,7 +109,7 @@ public class TopicService {
 
     @Transactional
     public void deleteTopic(Long notebookId, Long topicId, User user) {
-        Topic topic = topicRepository.findByIdAndNotebookIdAndUserId(topicId, notebookId, user.getId())
+        Topic topic = topicRepository.findByIdAndNotebookIdAndUserIdMembership(topicId, notebookId, user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Topic", topicId));
 
         // Delete embeddings from AI service
@@ -115,7 +125,7 @@ public class TopicService {
         List<Long> topicIds = request.getTopicIds();
         int i = 0;
         for (Long topicId : topicIds) {
-            Topic topic = topicRepository.findByIdAndNotebookIdAndUserId(topicId, notebookId, user.getId())
+            Topic topic = topicRepository.findByIdAndNotebookIdAndUserIdMembership(topicId, notebookId, user.getId())
                     .orElseThrow(() -> new ResourceNotFoundException("Topic", topicId));
             topic.setOrderIndex(i);
             topicRepository.save(topic);
@@ -124,8 +134,14 @@ public class TopicService {
     }
 
     public Topic getTopicEntity(Long topicId, User user) {
-        return topicRepository.findByIdAndUserId(topicId, user.getId())
+        return topicRepository.findByIdAndUserIdMembership(topicId, user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Topic", topicId));
+    }
+
+    private NotebookMembership.Role getUserRole(Long notebookId, Long userId) {
+        return membershipRepository.findByNotebookIdAndUserId(notebookId, userId)
+                .map(NotebookMembership::getRole)
+                .orElse(null);
     }
 
     private TopicResponse toTopicResponse(Topic topic, boolean includeDetails) {

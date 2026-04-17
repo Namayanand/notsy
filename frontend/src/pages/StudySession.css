@@ -1,0 +1,130 @@
+.study-session {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+.session-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.header-left h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.session-goal {
+  font-size: 14px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 4px 12px;
+  border-radius: var(--radius-md);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.session-timer {
+  font-family: monospace;
+  font-size: 24px;
+  background: var(--bg-primary);
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.session-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr 300px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.left-sidebar {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  border-right: 1px solid var(--border-color);
+}
+
+.main-panel {
+  overflow-y: auto;
+}
+
+.right-sidebar {
+  overflow-y: auto;
+  border-left: 1px solid var(--border-color);
+}
+
+/* Modal */
+.study-session .modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.study-session .modal-content {
+  background: var(--bg-primary);
+  padding: 32px;
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+}
+
+.study-session .modal-content h2 {
+  margin: 0 0 8px 0;
+  font-size: 24px;
+}
+
+.study-session .modal-content p {
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+
+.study-session .modal-content input {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+.study-session .modal-content input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.study-session .error-text {
+  color: var(--error);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.study-session .modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}

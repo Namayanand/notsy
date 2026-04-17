@@ -59,6 +59,14 @@ public class Conversation {
     private BranchStatus branchStatus = BranchStatus.ACTIVE;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "conversation_branch_id")
+    private ConversationBranch branchOf;
+
+    @Column(name = "branch_depth")
+    @Builder.Default
+    private Integer branchDepth = 0;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "topic_id", nullable = false)
     private Topic topic;
 
