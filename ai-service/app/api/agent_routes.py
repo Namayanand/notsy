@@ -325,3 +325,228 @@ async def end_session(session_id: str):
     await memory_store.in_memory.delete_session(session_id)
 
     return {"status": "ended", "session_id": session_id}
+
+
+# ============= LangGraph Routes =============
+
+@router.post("/langgraph/start")
+async def langgraph_start_session(request: StartSessionRequest):
+    """Start a new LangGraph learning session"""
+    session_id = str(uuid.uuid4())
+
+    # Initialize session context
+    await memory_store.set_session_context(session_id, "goal", request.goal)
+    await memory_store.set_session_context(session_id, "user_id", request.user_id)
+    await memory_store.set_session_context(session_id, "topic_id", request.topic_id)
+    await memory_store.set_session_context(session_id, "notebook_id", request.notebook_id)
+
+    sessions[session_id] = {
+        "user_id": request.user_id,
+        "goal": request.goal,
+        "started_at": str(uuid.uuid4()),
+        "topic_id": request.topic_id,
+        "notebook_id": request.notebook_id,
+        "agent_type": "langgraph"
+    }
+
+    logger.info(f"Started LangGraph session {session_id} for user {request.user_id}")
+
+    return {
+        "session_id": session_id,
+        "status": "started",
+        "agent_type": "langgraph",
+        "message": "LangGraph session started. Use /langgraph/run to execute the workflow."
+    }
+
+
+@router.post("/langgraph/run")
+async def langgraph_run_workflow(session_id: str, goal: str = None):
+    """Run the LangGraph learning workflow"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions[session_id]
+    user_id = session["user_id"]
+
+    # Get goal from session or parameter
+    learning_goal = goal or session.get("goal", "General Learning")
+
+    # Build initial state for LangGraph
+    from app.agents.langgraph_agents import learning_graph
+    from langchain_core.messages import HumanMessage
+
+    initial_state = {
+        "messages": [HumanMessage(content=f"I want to learn about {learning_goal}")],
+        "user_id": user_id,
+        "session_id": session_id,
+        "goal": learning_goal,
+        "roadmap": [],
+        "current_topic_index": 0,
+        "current_topic": None,
+        "retrieved_documents": [],
+        "explanation": None,
+        "quiz_questions": [],
+        "quiz_answers": [],
+        "assessment_results": [],
+        "weak_topics": [],
+        "patterns": [],
+        "motivation_message": None,
+        "streak_data": {},
+    }
+
+    try:
+        result = await learning_graph.ainvoke(initial_state)
+        return {
+            "result": result,
+            "session_id": session_id,
+            "agent_type": "langgraph"
+        }
+    except Exception as e:
+        logger.error(f"LangGraph workflow error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/langgraph/run-stream")
+async def langgraph_run_stream(session_id: str, goal: str = None):
+    """Run LangGraph workflow with streaming"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions[session_id]
+    user_id = session["user_id"]
+
+    learning_goal = goal or session.get("goal", "General Learning")
+
+    from app.agents.langgraph_agents import learning_graph
+    from langchain_core.messages import HumanMessage
+
+    initial_state = {
+        "messages": [HumanMessage(content=f"I want to learn about {learning_goal}")],
+        "user_id": user_id,
+        "session_id": session_id,
+        "goal": learning_goal,
+        "roadmap": [],
+        "current_topic_index": 0,
+        "current_topic": None,
+        "retrieved_documents": [],
+        "explanation": None,
+        "quiz_questions": [],
+        "quiz_answers": [],
+        "assessment_results": [],
+        "weak_topics": [],
+        "patterns": [],
+        "motivation_message": None,
+        "streak_data": {},
+    }
+
+    async def generate():
+        try:
+            async for event in learning_graph.ainvoke(initial_state):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as e:
+            logger.error(f"LangGraph stream error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return generate()
+
+
+# ============= LangChain Routes =============
+
+@router.post("/langchain/chat")
+async def langchain_chat(user_id: int, message: str):
+    """Chat with the LangChain learning agent"""
+    from app.agents.langchain_agents import run_learning_agent
+
+    try:
+        result = await run_learning_agent(message, user_id, str(uuid.uuid4()))
+        return result
+    except Exception as e:
+        logger.error(f"LangChain chat error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/langchain/tutor")
+async def langchain_tutor(user_id: int, question: str, topic_id: int = None):
+    """Chat with the LangChain tutor agent"""
+    from app.agents.langchain_agents import run_tutor_agent
+
+    try:
+        result = await run_tutor_agent(question, user_id, topic_id)
+        return result
+    except Exception as e:
+        logger.error(f"LangChain tutor error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/langchain/quiz")
+async def langchain_quiz(topic: str, difficulty: str = "medium", num_questions: int = 5):
+    """Generate a quiz using the LangChain evaluator agent"""
+    from app.agents.langchain_agents import run_quiz_agent
+
+    try:
+        result = await run_quiz_agent(topic, difficulty, num_questions)
+        return result
+    except Exception as e:
+        logger.error(f"LangChain quiz error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/langchain/planner")
+async def langchain_planner(user_id: int, goal: str):
+    """Create a learning roadmap using the LangChain planner agent"""
+    from app.agents.langchain_agents import run_planner_agent
+
+    try:
+        result = await run_planner_agent(goal, user_id)
+        return result
+    except Exception as e:
+        logger.error(f"LangChain planner error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/registry")
+async def get_agent_registry():
+    """Get agent registry - returns LangChain and LangGraph as internal agents"""
+    agents = [
+        {
+            "name": "langchain",
+            "url": "http://localhost:8000",
+            "card": {
+                "name": "langchain",
+                "description": "LangChain-based learning agent with tool use capabilities",
+                "version": "1.0.0",
+                "url": "http://localhost:8000",
+                "skills": [
+                    {"id": "learning", "name": "General Learning", "description": "Helps with learning any topic"},
+                    {"id": "tutoring", "name": "Tutoring", "description": "Explains concepts at various depth levels"},
+                    {"id": "quiz", "name": "Quiz Generation", "description": "Creates quizzes and evaluates answers"},
+                    {"id": "planning", "name": "Roadmap Planning", "description": "Creates learning roadmaps"}
+                ]
+            }
+        },
+        {
+            "name": "langgraph",
+            "url": "http://localhost:8000",
+            "card": {
+                "name": "langgraph",
+                "description": "LangGraph-based workflow agent with stateful learning pipelines",
+                "version": "1.0.0",
+                "url": "http://localhost:8000",
+                "skills": [
+                    {"id": "learning_workflow", "name": "Learning Workflow", "description": "Full learning pipeline: plan → retrieve → tutor → quiz → track"},
+                    {"id": "conditional_learning", "name": "Adaptive Learning", "description": "Adapts based on user performance"}
+                ]
+            }
+        }
+    ]
+
+    skills = []
+    for agent in agents:
+        for skill in agent["card"]["skills"]:
+            skills.append({
+                "agent_name": agent["name"],
+                "agent_url": agent["url"],
+                **skill
+            })
+
+    return {"agents": agents, "skills": skills}

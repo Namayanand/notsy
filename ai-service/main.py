@@ -35,6 +35,13 @@ async def health_check():
     return {"status": "healthy", "service": "notsy-ai-service"}
 
 
+@app.get("/registry")
+async def get_registry():
+    """Root-level registry endpoint for backend proxy"""
+    from app.api.agent_routes import get_agent_registry
+    return await get_agent_registry()
+
+
 @app.get("/")
 async def root():
     return {

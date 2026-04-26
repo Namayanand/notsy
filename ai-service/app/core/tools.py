@@ -376,3 +376,91 @@ Provide a clear, structured explanation with examples."""
     except Exception as e:
         logger.error(f"Error explaining concept: {e}")
         return {"explanation": "Sorry, I couldn't generate an explanation.", "error": str(e)}
+
+
+@tools.register("summarise_concepts")
+async def summarise_concepts(topics: List[Dict[str, Any]], explanations: List[Dict[str, Any]],
+                            quiz_results: Optional[List[Dict[str, Any]]] = None):
+    """Generate a summary of key concepts after learning completion"""
+    from app.core.rag_engine import rag_engine
+
+    if not topics:
+        return {"summary": "No topics to summarize", "key_takeaways": []}
+
+    # Extract topic names
+    topic_names = []
+    for t in topics:
+        if isinstance(t, dict):
+            topic_names.append(t.get("name", str(t)))
+        elif isinstance(t, str):
+            topic_names.append(t)
+
+    quiz_text = ""
+    if quiz_results:
+        quiz_lines = []
+        for r in quiz_results:
+            topic = r.get("topic", "unknown")
+            score = r.get("score", 0)
+            quiz_lines.append(f"- {topic}: {score}%")
+        quiz_text = "\nQuiz performance:\n" + "\n".join(quiz_lines)
+
+    # Extract explanation content
+    explanation_texts = []
+    for exp in explanations:
+        if isinstance(exp, dict) and "content" in exp:
+            content = exp["content"]
+            # Truncate long explanations
+            if len(content) > 500:
+                content = content[:500] + "..."
+            explanation_texts.append(content)
+
+    context_text = "\n\n".join(explanation_texts[:3]) if explanation_texts else "No detailed explanations available."
+
+    prompt = f"""Generate a comprehensive summary of the learning session covering these topics: {', '.join(topic_names)}
+
+{quiz_text}
+
+Key explanations from the session:
+{context_text}
+
+Generate a summary with:
+1. A brief overview of what was learned
+2. 3-5 key takeaways (bullet points)
+3. Suggestions for next steps or further learning
+
+Keep it concise and actionable. Format as JSON:
+{{
+  "summary": "overall summary text",
+  "key_takeaways": ["takeaway 1", "takeaway 2", "takeaway 3"],
+  "next_steps": ["suggestion 1", "suggestion 2"]
+}}"""
+
+    try:
+        client = rag_engine._get_client()
+        response = client.chat.completions.create(
+            model=rag_engine.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=1000
+        )
+
+        content = response.choices[0].message.content
+
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError:
+            import re
+            match = re.search(r'\{.*\}', content, re.DOTALL)
+            if match:
+                result = json.loads(match.group())
+            else:
+                result = {"summary": content, "key_takeaways": [], "next_steps": []}
+
+        return result
+    except Exception as e:
+        logger.error(f"Error generating summary: {e}")
+        return {
+            "summary": f"You have completed learning: {', '.join(topic_names)}",
+            "key_takeaways": topic_names,
+            "next_steps": ["Review the material regularly", "Practice with quizzes"]
+        }

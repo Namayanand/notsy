@@ -20,9 +20,9 @@ class Orchestrator:
     def __init__(self):
         self.agents: Dict[str, BaseAgent] = {}
         self._flows: Dict[str, List[str]] = {
-            "learning": ["planner", "retriever", "tutor", "evaluator", "memory", "motivator"],
-            "quiz": ["evaluator", "memory"],
-            "review": ["retriever", "tutor"],
+            "learning": ["langchain", "langgraph"],
+            "quiz": ["langchain"],
+            "review": ["langchain"],
         }
 
     def register_agent(self, name: str, agent: BaseAgent):
@@ -210,20 +210,52 @@ orchestrator = Orchestrator()
 
 
 def initialize_orchestrator():
-    """Initialize and register all agents"""
+    """Initialize and register LangChain + LangGraph agents"""
     from app.agents import (
-        PlannerAgent, TutorAgent, EvaluatorAgent,
-        MemoryAgent, MotivatorAgent, RetrieverAgent
+        learning_agent_executor,
+        learning_graph,
     )
 
+    # Register LangChain agent
+    class LangChainAgentWrapper(BaseAgent):
+        async def run(self, input: AgentInput) -> AgentOutput:
+            # Extract message from payload
+            payload = input.payload or {}
+            message = payload.get("message", payload.get("content", str(payload)))
+            result = await learning_agent_executor.ainvoke({"input": message})
+            return AgentOutput(
+                agent_type="langchain",
+                result={"response": result.get("output", "")},
+                next_agent=None,
+                metadata={}
+            )
+
+    # Register LangGraph agent
+    class LangGraphAgentWrapper(BaseAgent):
+        async def run(self, input: AgentInput) -> AgentOutput:
+            from app.agents.langgraph_agents import LearningState
+            payload = input.payload or {}
+            message = payload.get("message", payload.get("content", str(payload)))
+            state = LearningState(
+                messages=[],
+                user_id=input.user_id or 0,
+                session_id=input.session_id or "",
+                goal=message,
+                roadmap=[],
+                current_topic_index=0,
+            )
+            result = await learning_graph.ainvoke(state)
+            return AgentOutput(
+                agent_type="langgraph",
+                result={"response": result.get("messages", [])},
+                next_agent=None,
+                metadata={}
+            )
+
     orchestrator.register_agents({
-        "planner": PlannerAgent(),
-        "tutor": TutorAgent(),
-        "evaluator": EvaluatorAgent(),
-        "memory": MemoryAgent(),
-        "motivator": MotivatorAgent(),
-        "retriever": RetrieverAgent(),
+        "langchain": LangChainAgentWrapper(),
+        "langgraph": LangGraphAgentWrapper(),
     })
 
-    logger.info("Initialized orchestrator with all 6 agents")
+    logger.info("Initialized orchestrator with LangChain + LangGraph agents")
     return orchestrator

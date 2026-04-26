@@ -1,17 +1,19 @@
 version: '3.8'
+
 services:
+  # Infrastructure
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_DB: notsydb
+      POSTGRES_DB: notsy
       POSTGRES_USER: notsy
-      POSTGRES_PASSWORD: notsy123
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notsy}
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U notsy -d notsydb"]
+      test: ["CMD-SHELL", "pg_isready -U notsy"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -20,14 +22,42 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
-    volumes:
-      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
-      timeout: 5s
+      timeout: 3s
       retries: 5
 
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8081:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Orchestrator (uses LangChain + LangGraph agents internally)
+  orchestrator:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile.orchestrator
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CHROMA_URL=http://chromadb:8000
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3-70b-8192}
+      - PORT=8000
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Spring Boot backend
   backend:
     build:
       context: ./backend
@@ -35,57 +65,32 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: notsydb
-      DB_USER: notsy
-      DB_PASSWORD: notsy123
-      AI_SERVICE_URL: http://ai-service:8000
-      FILE_UPLOAD_DIR: /app/uploads
-      SPRING_BOOT_CALLBACK_URL: http://backend:8080
-      CORS_ORIGINS: http://localhost:3000,http://frontend:3000
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/notsy
+      - SPRING_DATASOURCE_USERNAME=notsy
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-notsy}
+      - SPRING_REDIS_HOST=redis
+      - AI_ORCHESTRATOR_URL=http://orchestrator:8000
+      - JWT_SECRET=${JWT_SECRET:-your-jwt-secret-change-in-production}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./uploads:/app/uploads
+      orchestrator:
+        condition: service_started
 
-  ai-service:
-    build:
-      context: ./ai-service
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
-    environment:
-      GROQ_API_KEY: ${GROQ_API_KEY}
-      SPRING_BOOT_CALLBACK_URL: http://backend:8080
-      CHROMA_PERSIST_DIR: /app/chroma_db
-      UPLOAD_BASE_DIR: /app/uploads
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-    volumes:
-      - ./uploads:/app/uploads
-      - chromadb:/app/chroma_db
-    depends_on:
-      - backend
-      - redis
-
+  # React frontend
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "3000:80"
     environment:
-      VITE_API_URL: ""
+      - VITE_API_BASE_URL=http://backend:8080
     depends_on:
       - backend
 
 volumes:
-  pgdata:
-  chromadb:
-  redisdata:
+  postgres_data:
+  chroma_data:

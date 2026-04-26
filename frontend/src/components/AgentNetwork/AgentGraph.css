@@ -1,0 +1,114 @@
+/* ============================================
+   AGENT GRAPH
+   ============================================ */
+.agent-graph-container {
+  flex: 1;
+  min-height: 400px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-sunken);
+  border-radius: var(--radius-xl);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Dot grid pattern */
+.agent-graph-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--border-faint) 1px, transparent 1px);
+  background-size: 20px 20px;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.agent-graph-svg {
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Node transitions */
+.agent-graph-container .nodes g {
+  transition: transform var(--duration-base) var(--ease-out);
+  cursor: pointer;
+}
+
+.agent-graph-container .nodes g:hover {
+  transform: scale(1.15);
+}
+
+.agent-graph-container .nodes circle,
+.agent-graph-container .nodes polygon {
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.agent-graph-container .nodes g:hover circle,
+.agent-graph-container .nodes g:hover polygon {
+  filter: drop-shadow(0 2px 4px rgba(26, 24, 20, 0.15));
+  stroke-width: 3;
+}
+
+/* Status ring */
+.agent-graph-container .status-ring {
+  fill: none;
+  stroke-width: 2;
+  stroke-dasharray: none;
+}
+
+.agent-graph-container .status-ring.healthy {
+  stroke: var(--sage);
+}
+
+.agent-graph-container .status-ring.degraded {
+  stroke: #b8860b;
+  stroke-dasharray: 4 4;
+}
+
+.agent-graph-container .status-ring.unhealthy {
+  stroke: #c0392b;
+  stroke-dasharray: 2 4;
+}
+
+/* Agent label */
+.agent-graph-container .agent-label {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  fill: var(--ink-secondary);
+}
+
+/* Active task pulse animation */
+.agent-graph-container .active-indicator {
+  animation: agentPulse 2s ease-in-out infinite;
+}
+
+@keyframes agentPulse {
+  0%, 100% {
+    opacity: 0.6;
+    r: 8;
+  }
+  50% {
+    opacity: 0.2;
+    r: 16;
+  }
+}
+
+/* Edge styling */
+.agent-graph-container .edges line {
+  stroke: var(--border);
+  stroke-width: 1.5;
+  opacity: 0.6;
+}
+
+.agent-graph-container .edges line.strong {
+  stroke: var(--sage);
+  stroke-width: 2;
+  opacity: 0.8;
+}
