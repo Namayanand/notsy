@@ -1,4 +1,4 @@
-"""LangGraph-based orchestrator with intelligent routing"""
+"""LangGraph-based orchestrator with intelligent routing - no A2A"""
 import json
 import logging
 import os
@@ -9,19 +9,23 @@ from enum import Enum
 from langgraph.graph import StateGraph, END
 from langgraph.constants import START
 
-import httpx
-
 logger = logging.getLogger(__name__)
 
-# Agent endpoints from environment
-AGENT_ENDPOINTS = {
-    "planner": os.getenv("AGENT_PLANNER_URL", os.getenv("PLANNER_URL", "http://localhost:8001")),
-    "tutor": os.getenv("AGENT_TUTOR_URL", os.getenv("TUTOR_URL", "http://localhost:8002")),
-    "evaluator": os.getenv("AGENT_EVALUATOR_URL", os.getenv("EVALUATOR_URL", "http://localhost:8003")),
-    "motivator": os.getenv("AGENT_MOTIVATOR_URL", os.getenv("MOTIVATOR_URL", "http://localhost:8004")),
-    "retriever": os.getenv("AGENT_RETRIEVER_URL", os.getenv("RETRIEVER_URL", "http://localhost:8005")),
-    "memory": os.getenv("AGENT_MEMORY_URL", os.getenv("MEMORY_URL", "http://localhost:8006")),
-}
+# Import internal agents directly (no HTTP calls)
+from app.agents.langchain_agents import (
+    semantic_search,
+    retrieve_memory,
+    store_memory,
+    explain_concept,
+    generate_roadmap,
+    generate_quiz,
+    generate_motivation,
+    get_streak_data,
+)
+from app.agents.langgraph_agents import (
+    learning_graph,
+    conditional_learning_graph,
+)
 
 
 class Intent(str, Enum):
@@ -57,18 +61,11 @@ class OrchestratorGraph:
 
     def __init__(self):
         self._graph = None
-        self._http_client = None
         self.groq_api_key = os.getenv("GROQ_API_KEY", "")
         self.groq_model = os.getenv("GROQ_MODEL", "llama-3-70b-8192")
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._http_client is None:
-            self._http_client = httpx.AsyncClient(timeout=120.0)
-        return self._http_client
-
     async def close(self):
-        if self._http_client:
-            await self._http_client.aclose()
+        pass
 
     async def classify_intent(self, state: OrchestratorState) -> OrchestratorState:
         """Classify user intent using Groq LLM"""
@@ -93,7 +90,8 @@ Respond ONLY with valid JSON:
 }"""
 
         try:
-            client = await self._get_client()
+            import httpx
+            client = httpx.AsyncClient(timeout=120.0)
             response = await client.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={
@@ -110,17 +108,16 @@ Respond ONLY with valid JSON:
                     "max_tokens": 500
                 }
             )
+            await client.aclose()
 
             if response.status_code == 200:
                 result = response.json()
                 content = result["choices"][0]["message"]["content"]
-                # Parse JSON from response
                 parsed = json.loads(content.strip("```json").strip("```").strip())
 
                 intent = parsed.get("intent", "MULTI")
                 confidence = parsed.get("confidence", 0.5)
 
-                # Low confidence → MULTI
                 if confidence < 0.6:
                     intent = "MULTI"
 
@@ -128,7 +125,6 @@ Respond ONLY with valid JSON:
                 state["confidence"] = confidence
                 logger.info(f"Intent classified: {intent} (confidence: {confidence})")
             else:
-                logger.warning(f"Groq classification failed: {response.status_code}")
                 state["intent"] = "MULTI"
                 state["confidence"] = 0.5
 
@@ -140,44 +136,18 @@ Respond ONLY with valid JSON:
         return state
 
     async def load_memory(self, state: OrchestratorState) -> OrchestratorState:
-        """Load context from Memory agent"""
+        """Load context from Memory - direct function call"""
         user_id = state["user_id"]
         session_id = state["session_id"]
 
         try:
-            client = await self._get_client()
-            response = await client.post(
-                f"{AGENT_ENDPOINTS['memory']}/tasks/send",
-                json={
-                    "taskId": f"{state['task_id']}-memory-load",
-                    "skill": {"id": "retrieve_context"},
-                    "message": {
-                        "role": "user",
-                        "content": f"Retrieve context for user {user_id}",
-                        "metadata": {
-                            "session_id": session_id,
-                            "user_id": user_id,
-                            "last_n_turns": 5
-                        }
-                    }
-                }
+            result = await retrieve_memory(
+                user_id=int(user_id) if user_id.isdigit() else 1,
+                query=state["user_message"],
+                session_id=session_id
             )
-
-            if response.status_code == 200:
-                result = response.json()
-                output = result.get("output", {})
-                content = output.get("content", "{}")
-                try:
-                    context = json.loads(content)
-                except:
-                    context = {"raw": content}
-
-                state["memory_context"] = context
-                logger.info(f"Memory context loaded for user {user_id}")
-            else:
-                state["memory_context"] = {}
-                logger.warning(f"Memory load failed: {response.status_code}")
-
+            state["memory_context"] = result
+            logger.info(f"Memory context loaded for user {user_id}")
         except Exception as e:
             logger.error(f"Memory load error: {e}")
             state["memory_context"] = {}
@@ -186,44 +156,18 @@ Respond ONLY with valid JSON:
         return state
 
     async def retrieve_chunks(self, state: OrchestratorState) -> OrchestratorState:
-        """Retrieve relevant chunks from Retriever agent"""
+        """Retrieve relevant chunks - direct function call"""
         query = state["user_message"]
         notebook_id = state.get("notebook_id")
 
         try:
-            client = await self._get_client()
-            response = await client.post(
-                f"{AGENT_ENDPOINTS['retriever']}/tasks/send",
-                json={
-                    "taskId": f"{state['task_id']}-retrieve",
-                    "skill": {"id": "semantic_search"},
-                    "message": {
-                        "role": "user",
-                        "content": query,
-                        "metadata": {
-                            "notebook_id": notebook_id,
-                            "top_k": 5,
-                            "rerank": True
-                        }
-                    }
-                }
+            result = await semantic_search(
+                query=query,
+                notebook_id=int(notebook_id) if notebook_id and notebook_id.isdigit() else None,
+                n_results=5
             )
-
-            if response.status_code == 200:
-                result = response.json()
-                output = result.get("output", {})
-                content = output.get("content", "[]")
-                try:
-                    chunks = json.loads(content)
-                except:
-                    chunks = [{"content": content, "source": "unknown"}]
-
-                state["retrieved_chunks"] = chunks
-                logger.info(f"Retrieved {len(chunks)} chunks")
-            else:
-                state["retrieved_chunks"] = []
-                logger.warning(f"Retrieval failed: {response.status_code}")
-
+            state["retrieved_chunks"] = result.get("results", [])
+            logger.info(f"Retrieved {len(state.get('retrieved_chunks', []))} chunks")
         except Exception as e:
             logger.error(f"Retrieval error: {e}")
             state["retrieved_chunks"] = []
@@ -231,33 +175,14 @@ Respond ONLY with valid JSON:
         return state
 
     async def run_tutor(self, state: OrchestratorState) -> OrchestratorState:
-        """Run Tutor agent with RAG context"""
+        """Run Tutor agent - direct function call"""
         try:
-            client = await self._get_client()
-            response = await client.post(
-                f"{AGENT_ENDPOINTS['tutor']}/tasks/send",
-                json={
-                    "taskId": f"{state['task_id']}-tutor",
-                    "skill": {"id": "explain_concept"},
-                    "message": {
-                        "role": "user",
-                        "content": state["user_message"],
-                        "metadata": {
-                            "rag_chunks": state.get("retrieved_chunks", []),
-                            "memory": state.get("memory_context", {}),
-                            "mode": state.get("learning_mode", "MASTER_THIS")
-                        }
-                    }
-                }
+            result = await explain_concept(
+                topic=state["user_message"],
+                depth=state.get("learning_mode", "MASTER_THIS").lower(),
+                context=state.get("retrieved_chunks", [])
             )
-
-            if response.status_code == 200:
-                result = response.json()
-                output = result.get("output", {})
-                state["agent_outputs"]["tutor"] = output.get("content", "")
-            else:
-                state["agent_outputs"]["tutor"] = "Tutor unavailable"
-
+            state["agent_outputs"]["tutor"] = result.get("explanation", "Could not generate explanation")
             state["agents_used"].append("tutor")
         except Exception as e:
             logger.error(f"Tutor error: {e}")
@@ -266,35 +191,14 @@ Respond ONLY with valid JSON:
         return state
 
     async def run_planner(self, state: OrchestratorState) -> OrchestratorState:
-        """Run Planner agent with RAG context"""
+        """Run Planner agent - direct function call"""
         try:
-            client = await self._get_client()
             memory_context = state.get("memory_context", {})
-
-            response = await client.post(
-                f"{AGENT_ENDPOINTS['planner']}/tasks/send",
-                json={
-                    "taskId": f"{state['task_id']}-planner",
-                    "skill": {"id": "generate_study_plan"},
-                    "message": {
-                        "role": "user",
-                        "content": state["user_message"],
-                        "metadata": {
-                            "rag_chunks": state.get("retrieved_chunks", []),
-                            "memory": memory_context,
-                            "weak_topics": memory_context.get("weak_topics", [])
-                        }
-                    }
-                }
+            result = await generate_roadmap(
+                goal=state["user_message"],
+                weak_topics=memory_context.get("weak_topics", [])
             )
-
-            if response.status_code == 200:
-                result = response.json()
-                output = result.get("output", {})
-                state["agent_outputs"]["planner"] = output.get("content", "")
-            else:
-                state["agent_outputs"]["planner"] = "Planner unavailable"
-
+            state["agent_outputs"]["planner"] = result.get("roadmap", "Could not generate roadmap")
             state["agents_used"].append("planner")
         except Exception as e:
             logger.error(f"Planner error: {e}")
@@ -303,36 +207,14 @@ Respond ONLY with valid JSON:
         return state
 
     async def run_evaluator_quiz(self, state: OrchestratorState) -> OrchestratorState:
-        """Run Evaluator agent for quiz generation"""
+        """Run Evaluator agent for quiz - direct function call"""
         try:
-            client = await self._get_client()
-            memory_context = state.get("memory_context", {})
-
-            response = await client.post(
-                f"{AGENT_ENDPOINTS['evaluator']}/tasks/send",
-                json={
-                    "taskId": f"{state['task_id']}-evaluator",
-                    "skill": {"id": "grade_quiz"},
-                    "message": {
-                        "role": "user",
-                        "content": state["user_message"],
-                        "metadata": {
-                            "rag_chunks": state.get("retrieved_chunks", []),
-                            "memory": memory_context,
-                            "num_questions": 5,
-                            "difficulty": "adaptive"
-                        }
-                    }
-                }
+            result = await generate_quiz(
+                topic=state["user_message"],
+                difficulty="medium",
+                num_questions=5
             )
-
-            if response.status_code == 200:
-                result = response.json()
-                output = result.get("output", {})
-                state["agent_outputs"]["evaluator"] = output.get("content", "")
-            else:
-                state["agent_outputs"]["evaluator"] = "Evaluator unavailable"
-
+            state["agent_outputs"]["evaluator"] = result.get("quiz", "Could not generate quiz")
             state["agents_used"].append("evaluator")
         except Exception as e:
             logger.error(f"Evaluator error: {e}")
@@ -341,36 +223,12 @@ Respond ONLY with valid JSON:
         return state
 
     async def run_motivator(self, state: OrchestratorState) -> OrchestratorState:
-        """Run Motivator agent"""
+        """Run Motivator agent - direct function call"""
         try:
-            client = await self._get_client()
-            memory_context = state.get("memory_context", {})
-            primary_response = state["agent_outputs"].get("tutor") or state["agent_outputs"].get("planner") or state["agent_outputs"].get("evaluator", "")
-
-            response = await client.post(
-                f"{AGENT_ENDPOINTS['motivator']}/tasks/send",
-                json={
-                    "taskId": f"{state['task_id']}-motivator",
-                    "skill": {"id": "generate_encouragement"},
-                    "message": {
-                        "role": "user",
-                        "content": "Generate encouragement",
-                        "metadata": {
-                            "user_message": state["user_message"],
-                            "streak_data": memory_context.get("streak", {}),
-                            "main_response": primary_response
-                        }
-                    }
-                }
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                output = result.get("output", {})
-                state["agent_outputs"]["motivator"] = output.get("content", "")
-            else:
-                state["agent_outputs"]["motivator"] = ""
-
+            user_id = int(state["user_id"]) if state["user_id"].isdigit() else 1
+            streak_data = await get_streak_data(user_id=user_id)
+            result = await generate_motivation(streak_data=streak_data)
+            state["agent_outputs"]["motivator"] = result.get("message", "")
             state["agents_used"].append("motivator")
         except Exception as e:
             logger.error(f"Motivator error: {e}")
@@ -382,16 +240,38 @@ Respond ONLY with valid JSON:
         """Run multiple agents in parallel for MULTI intent"""
         import asyncio
 
-        async def run_all():
-            tasks = [
-                self.run_tutor(state.copy()),
-                self.run_planner(state.copy()),
-                self.run_evaluator_quiz(state.copy()),
-            ]
-            await asyncio.gather(*tasks, return_exceptions=True)
-            return state
+        # Create copies for parallel execution
+        states = []
+        for name in ["tutor", "planner", "evaluator"]:
+            s = state.copy()
+            s["agent_outputs"] = {}
+            states.append(s)
 
-        return await run_all()
+        async def run_tutor_task(s):
+            return await self.run_tutor(s)
+
+        async def run_planner_task(s):
+            return await self.run_planner(s)
+
+        async def run_evaluator_task(s):
+            return await self.run_evaluator_quiz(s)
+
+        results = await asyncio.gather(
+            run_tutor_task(states[0]),
+            run_planner_task(states[1]),
+            run_evaluator_task(states[2]),
+            return_exceptions=True
+        )
+
+        # Merge results
+        for r in results:
+            if isinstance(r, OrchestratorState):
+                state["agent_outputs"].update(r.get("agent_outputs", {}))
+                for agent in r.get("agents_used", []):
+                    if agent not in state["agents_used"]:
+                        state["agents_used"].append(agent)
+
+        return state
 
     async def format_retrieval_response(self, state: OrchestratorState) -> OrchestratorState:
         """Format retrieval response for SEARCH intent"""
@@ -405,28 +285,18 @@ Respond ONLY with valid JSON:
         return state
 
     async def save_memory(self, state: OrchestratorState) -> OrchestratorState:
-        """Save context to Memory agent"""
+        """Save context to Memory - direct function call"""
         try:
-            client = await self._get_client()
-            final_response = state.get("final_response", "")
-
-            await client.post(
-                f"{AGENT_ENDPOINTS['memory']}/tasks/send",
-                json={
-                    "taskId": f"{state['task_id']}-memory-save",
-                    "skill": {"id": "store_context"},
-                    "message": {
-                        "role": "user",
-                        "content": "Store context",
-                        "metadata": {
-                            "user_id": state["user_id"],
-                            "session_id": state["session_id"],
-                            "user_message": state["user_message"],
-                            "final_response": final_response,
-                            "agents_used": state["agents_used"],
-                            "intent": state.get("intent")
-                        }
-                    }
+            user_id = int(state["user_id"]) if state["user_id"].isdigit() else 1
+            await store_memory(
+                user_id=user_id,
+                memory_type="conversation",
+                content=state["user_message"],
+                session_id=state["session_id"],
+                metadata={
+                    "response": state.get("final_response", ""),
+                    "agents_used": state["agents_used"],
+                    "intent": state.get("intent")
                 }
             )
             logger.info("Memory context saved")
@@ -439,10 +309,7 @@ Respond ONLY with valid JSON:
         """Format the final response from all agent outputs"""
         outputs = state.get("agent_outputs", {})
 
-        # Build response from all outputs
         parts = []
-
-        # Primary response (tutor, planner, or evaluator)
         if "tutor" in outputs:
             parts.append(outputs["tutor"])
         elif "planner" in outputs:
@@ -452,9 +319,8 @@ Respond ONLY with valid JSON:
         elif "retriever" in outputs:
             parts.append(outputs["retriever"])
 
-        # Add motivation if present
         if outputs.get("motivator"):
-            parts.append(f"\n\n💪 {outputs['motivator']}")
+            parts.append(f"\n\n{outputs['motivator']}")
 
         state["final_response"] = "\n\n".join(parts)
         return state
@@ -479,7 +345,6 @@ Respond ONLY with valid JSON:
         """Build the LangGraph"""
         graph = StateGraph(OrchestratorState)
 
-        # Add all nodes
         graph.add_node("load_memory", self.load_memory)
         graph.add_node("retrieve_chunks", self.retrieve_chunks)
         graph.add_node("classify_intent", self.classify_intent)
@@ -492,10 +357,7 @@ Respond ONLY with valid JSON:
         graph.add_node("save_memory", self.save_memory)
         graph.add_node("format_final_response", self.format_final_response)
 
-        # Set entry point
         graph.set_entry_point("load_memory")
-
-        # Sequential edges
         graph.add_edge("load_memory", "retrieve_chunks")
         graph.add_edge("retrieve_chunks", "classify_intent")
 
@@ -508,17 +370,15 @@ Respond ONLY with valid JSON:
                 "run_planner": "run_planner",
                 "run_evaluator_quiz": "run_evaluator_quiz",
                 "run_motivator": "run_motivator",
-                "run_parallel_agents": "run_parallel_agents",
-                "format_retrieval_response": "format_retrieval_response"
+                "format_retrieval_response": "format_retrieval_response",
+                "run_parallel_agents": "run_parallel_agents"
             }
         )
 
-        # All primary nodes → motivational → save → format
-        for node in ["run_tutor", "run_planner", "run_evaluator_quiz",
-                     "run_parallel_agents", "format_retrieval_response"]:
-            graph.add_edge(node, "run_motivator")
+        # All routes lead to save_memory -> format_final_response -> END
+        for node in ["run_tutor", "run_planner", "run_evaluator_quiz", "run_motivator", "format_retrieval_response", "run_parallel_agents"]:
+            graph.add_edge(node, "save_memory")
 
-        graph.add_edge("run_motivator", "save_memory")
         graph.add_edge("save_memory", "format_final_response")
         graph.add_edge("format_final_response", END)
 
@@ -526,16 +386,15 @@ Respond ONLY with valid JSON:
 
 
 # Global orchestrator instance
-_orchestrator_graph: Optional[OrchestratorGraph] = None
+_orchestrator: Optional[OrchestratorGraph] = None
 
 
-def get_orchestrator_graph() -> OrchestratorGraph:
-    """Get or create the orchestrator graph instance"""
-    global _orchestrator_graph
-    if _orchestrator_graph is None:
-        _orchestrator_graph = OrchestratorGraph()
-        _orchestrator_graph._graph = _orchestrator_graph.build_graph().compile()
-    return _orchestrator_graph
+def get_orchestrator() -> OrchestratorGraph:
+    """Get or create the orchestrator instance"""
+    global _orchestrator
+    if _orchestrator is None:
+        _orchestrator = OrchestratorGraph()
+    return _orchestrator
 
 
 async def run_orchestrator(
@@ -546,8 +405,8 @@ async def run_orchestrator(
     notebook_id: Optional[str] = None,
     learning_mode: str = "MASTER_THIS"
 ) -> Dict[str, Any]:
-    """Run the orchestrator pipeline"""
-    orch = get_orchestrator_graph()
+    """Main entry point for orchestrator"""
+    orchestrator = get_orchestrator()
 
     initial_state: OrchestratorState = {
         "task_id": task_id,
@@ -566,22 +425,23 @@ async def run_orchestrator(
         "error": None
     }
 
-    try:
-        result = await orch._graph.ainvoke(initial_state)
-        return {
-            "success": True,
-            "response": result.get("final_response", ""),
-            "agents_used": result.get("agents_used", []),
-            "intent": result.get("intent"),
-            "confidence": result.get("confidence")
-        }
-    except Exception as e:
-        logger.error(f"Orchestrator error: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "response": "I apologize, but I encountered an error processing your request.",
-            "agents_used": [],
-            "intent": "ERROR",
-            "confidence": 0.0
-        }
+    # Build and run graph
+    graph = orchestrator.build_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(initial_state)
+
+    return {
+        "response": result.get("final_response", ""),
+        "intent": result.get("intent"),
+        "confidence": result.get("confidence"),
+        "agents_used": result.get("agents_used", []),
+        "error": result.get("error")
+    }
+
+
+def get_orchestrator_graph():
+    """Get the compiled orchestrator graph"""
+    orchestrator = get_orchestrator()
+    graph = orchestrator.build_graph()
+    return graph.compile()
