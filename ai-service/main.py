@@ -46,7 +46,7 @@ async def get_registry():
 async def root():
     return {
         "service": "NOTSY AI Service",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "docs": "/docs",
         "health": "/health"
     }

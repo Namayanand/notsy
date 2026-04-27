@@ -6,20 +6,8 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Try to import optional dependencies
-try:
-    import redis.asyncio as redis
-    REDIS_AVAILABLE = True
-except ImportError:
-    REDIS_AVAILABLE = False
-    logger.warning("Redis not available, using in-memory fallback")
-
-try:
-    from app.core.embeddings import embedding_model
-    EMBEDDINGS_AVAILABLE = True
-except ImportError:
-    EMBEDDINGS_AVAILABLE = False
-    logger.warning("Embeddings not available for memory store")
+# Flag for embeddings - will be lazily initialized
+EMBEDDINGS_AVAILABLE = None
 
 
 class InMemoryStore:
@@ -45,86 +33,31 @@ class InMemoryStore:
 
 
 class MemoryStore:
-    """Shared memory system with short-term (Redis) and long-term (vector) storage"""
+    """Shared memory system with in-memory short-term and vector-based long-term storage"""
 
     def __init__(self):
-        self.redis_client: Optional[redis.Redis] = None
         self.in_memory = InMemoryStore()
-        self._connected = False
+        self._embedding_model = None
 
     async def connect(self):
-        """Initialize Redis connection"""
-        if not REDIS_AVAILABLE:
-            logger.info("Using in-memory store (Redis not available)")
-            self._connected = True
-            return
-
-        try:
-            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-            self.redis_client = await redis.from_url(
-                redis_url,
-                decode_responses=True,
-                encoding="utf-8"
-            )
-            # Test connection
-            await self.redis_client.ping()
-            self._connected = True
-            logger.info("Connected to Redis for memory store")
-        except Exception as e:
-            logger.warning(f"Could not connect to Redis: {e}. Using in-memory fallback.")
-            self._connected = False
+        """Initialize the memory store"""
+        logger.info("Using in-memory store for session data")
 
     async def disconnect(self):
-        """Close Redis connection"""
-        if self.redis_client:
-            await self.redis_client.close()
+        """Close connections (no-op for in-memory store)"""
+        pass
 
     # Short-term memory (session context)
     async def set_session_context(self, session_id: str, key: str, value: Any, ttl: int = 3600):
         """Store session context in short-term memory"""
-        if self._connected and self.redis_client:
-            try:
-                await self.redis_client.setex(
-                    f"session:{session_id}:{key}",
-                    ttl,
-                    json.dumps(value, default=str)
-                )
-            except Exception as e:
-                logger.warning(f"Redis error, using in-memory: {e}")
-                await self.in_memory.set_session_context(session_id, key, value, ttl)
-        else:
-            await self.in_memory.set_session_context(session_id, key, value, ttl)
+        await self.in_memory.set_session_context(session_id, key, value, ttl)
 
     async def get_session_context(self, session_id: str, key: str) -> Any:
         """Retrieve session context from short-term memory"""
-        if self._connected and self.redis_client:
-            try:
-                data = await self.redis_client.get(f"session:{session_id}:{key}")
-                if data:
-                    return json.loads(data)
-            except Exception as e:
-                logger.warning(f"Redis error, using in-memory: {e}")
-
         return await self.in_memory.get_session_context(session_id, key)
 
     async def get_all_session_context(self, session_id: str) -> Dict[str, Any]:
         """Get all context for a session"""
-        if self._connected and self.redis_client:
-            try:
-                keys = []
-                async for key in self.redis_client.scan_iter(f"session:{session_id}:*"):
-                    keys.append(key)
-
-                result = {}
-                for key in keys:
-                    data = await self.redis_client.get(key)
-                    if data:
-                        short_key = key.split(":")[-1]
-                        result[short_key] = json.loads(data)
-                return result
-            except Exception as e:
-                logger.warning(f"Redis error, using in-memory: {e}")
-
         return await self.in_memory.get_all_session_context(session_id)
 
     async def update_session_context(self, session_id: str, updates: Dict[str, Any], ttl: int = 3600):
@@ -136,26 +69,35 @@ class MemoryStore:
     async def write(self, user_id: int, memory_type: str, content: str,
                    metadata: Optional[Dict[str, Any]] = None):
         """Store memory with embedding in long-term memory"""
+        global EMBEDDINGS_AVAILABLE
+        if EMBEDDINGS_AVAILABLE is None:
+            try:
+                from app.core.embeddings import get_embedding_model
+                self._embedding_model = get_embedding_model()
+                EMBEDDINGS_AVAILABLE = True
+            except ImportError:
+                EMBEDDINGS_AVAILABLE = False
+
         if not EMBEDDINGS_AVAILABLE:
             logger.warning("Embeddings not available, storing without embedding")
             return {"stored": False, "reason": "embeddings unavailable"}
 
         try:
-            embedding = embedding_model.encode(content)
-
             # Store in ChromaDB under user's memory collection
             from app.services.vector_store import vector_store
 
             collection_name = f"memory_{user_id}"
-            vector_store.add(
-                documents=[content],
+            # Use a dedicated memory topic ID (negative to avoid conflicts)
+            memory_topic_id = -1000 - user_id
+            vector_store.add_documents(
+                topic_id=memory_topic_id,
+                chunks=[content],
                 metadatas=[{
                     "memory_type": memory_type,
                     "user_id": user_id,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now().isoformat(),
                     **(metadata or {})
-                }],
-                embeddings=[embedding]
+                }]
             )
 
             # Also store in backend database for durability
@@ -170,26 +112,29 @@ class MemoryStore:
                   memory_types: Optional[List[str]] = None,
                   n_results: int = 10) -> List[Dict[str, Any]]:
         """Retrieve relevant memories from long-term memory"""
+        global EMBEDDINGS_AVAILABLE
+        if EMBEDDINGS_AVAILABLE is None:
+            try:
+                from app.core.embeddings import get_embedding_model
+                self._embedding_model = get_embedding_model()
+                EMBEDDINGS_AVAILABLE = True
+            except ImportError:
+                EMBEDDINGS_AVAILABLE = False
+
         if not EMBEDDINGS_AVAILABLE:
             logger.warning("Embeddings not available for retrieval")
             return []
 
         try:
-            embedding = embedding_model.encode(query)
             from app.services.vector_store import vector_store
 
-            collection_name = f"memory_{user_id}"
+            # Use the same memory topic ID as write
+            memory_topic_id = -1000 - user_id
 
-            # Build filter if memory_types specified
-            where_filter = None
-            if memory_types:
-                where_filter = {"memory_type": {"$in": memory_types}}
-
-            results = vector_store.query_by_embedding(
-                collection_name=collection_name,
-                embedding=embedding,
-                n_results=n_results,
-                where=where_filter
+            results = vector_store.query(
+                topic_id=memory_topic_id,
+                query_text=query,
+                n_results=n_results
             )
 
             memories = []
@@ -198,6 +143,11 @@ class MemoryStore:
             distances = results.get("distances", [[]])[0]
 
             for i, doc in enumerate(documents):
+                # Filter by memory_type if specified
+                if memory_types:
+                    mem_type = metadatas[i].get("memory_type", "") if i < len(metadatas) else ""
+                    if mem_type not in memory_types:
+                        continue
                 memories.append({
                     "content": doc,
                     "metadata": metadatas[i] if i < len(metadatas) else {},

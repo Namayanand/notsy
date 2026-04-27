@@ -1,0 +1,23 @@
+[
+  {
+    "question": "What is photosynthesis?",
+    "ground_truth": "Photosynthesis is the process by which plants convert sunlight, water, and CO2 into glucose and oxygen.",
+    "retrieval_needed": true,
+    "expected_relevant_sources": 2,
+    "expected_citations": ["resource.pdf"]
+  },
+  {
+    "question": "What is the capital of France?",
+    "ground_truth": "Paris",
+    "retrieval_needed": false,
+    "expected_relevant_sources": 0,
+    "expected_citations": []
+  },
+  {
+    "question": "Explain how photosynthesis works.",
+    "ground_truth": "Plants use chlorophyll to absorb sunlight, which powers chemical reactions that convert CO2 and water into glucose.",
+    "retrieval_needed": true,
+    "expected_relevant_sources": 3,
+    "expected_citations": ["resource.pdf"]
+  }
+]

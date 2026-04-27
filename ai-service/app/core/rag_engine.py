@@ -273,42 +273,115 @@ IMPORTANT: You are operating in Self-RAG mode. When answering:
         message: str,
         response: str,
         documents: List[str],
-        metadatas: List[Dict]
+        metadatas: List[Dict],
+        max_iterations: int = 3
     ) -> tuple:
-        """Step 4: Revise response based on grounding evaluation."""
-        try:
-            docs_with_sources = []
-            for i, doc in enumerate(documents):
-                source = metadatas[i].get("source", "Unknown") if i < len(metadatas) else "Unknown"
-                docs_with_sources.append(f"[Source: {source}]\n{doc}")
+        """
+        Step 4: Iteratively revise response until grounded or max iterations reached.
+        Returns: (final_response, was_revised, num_iterations)
+        """
+        current_response = response
+        num_iterations = 0
 
-            docs_text = "\n\n".join(docs_with_sources)
-            prompt = SelfRAG.REVISION_PROMPT.format(
-                question=message,
-                response=response,
-                documents=docs_text
-            )
+        for iteration in range(max_iterations):
+            num_iterations += 1
 
-            client = self._get_client()
-            chat_completion = client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=1500
-            )
+            try:
+                docs_with_sources = []
+                for i, doc in enumerate(documents):
+                    source = metadatas[i].get("source", "Unknown") if i < len(metadatas) else "Unknown"
+                    docs_with_sources.append(f"[Source: {source}]\n{doc}")
 
-            revision_response = chat_completion.choices[0].message.content
+                docs_text = "\n\n".join(docs_with_sources)
 
-            # Check if we got a revised response
-            if "[REVISED_RESPONSE]" in revision_response:
-                revised = revision_response.split("[REVISED_RESPONSE]")[-1].strip()
-                return revised, True
+                # First, evaluate the response
+                evaluation_prompt = SelfRAG.REVISION_PROMPT.format(
+                    question=message,
+                    response=current_response,
+                    documents=docs_text
+                )
 
-            return response, False
+                client = self._get_client()
+                chat_completion = client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": evaluation_prompt}],
+                    temperature=0.1,
+                    max_tokens=1500
+                )
 
-        except Exception as e:
-            logger.error(f"Error in Self-RAG revision: {e}")
-            return response, False
+                evaluation_response = chat_completion.choices[0].message.content
+
+                # Parse evaluation results
+                is_grounded, citation_complete, is_relevant = self._parse_revision_evaluation(evaluation_response)
+
+                logger.info(f"Iteration {num_iterations}: Grounded={is_grounded}, Citations={citation_complete}, Relevant={is_relevant}")
+
+                # If everything looks good, stop
+                if is_grounded and citation_complete and is_relevant:
+                    logger.info(f"Response passed evaluation after {num_iterations} iteration(s)")
+                    return current_response, num_iterations > 1, num_iterations
+
+                # If not grounded, check for revised response or generate one
+                if "[REVISED_RESPONSE]" in evaluation_response:
+                    revised = evaluation_response.split("[REVISED_RESPONSE]")[-1].strip()
+                    current_response = revised
+                    logger.info(f"Iteration {num_iterations}: Using revised response")
+                else:
+                    # Generate a new revision since evaluation found issues
+                    revision_prompt = f"""The previous response has issues:
+- Groundedness: {is_grounded}
+- Citations: {citation_complete}
+- Relevance: {is_relevant}
+
+Original Question: {message}
+Current Response: {current_response}
+Documents: {docs_text}
+
+Generate a revised response that:
+1. Only uses information from the provided documents
+2. Cites all sources using [Source: filename] format
+3. Directly answers the question
+4. Does not hallucinate
+
+Respond with ONLY the revised response, no explanation."""
+
+                    revision_completion = client.chat.completions.create(
+                        model=self.model,
+                        messages=[{"role": "user", "content": revision_prompt}],
+                        temperature=0.1,
+                        max_tokens=1500
+                    )
+                    current_response = revision_completion.choices[0].message.content
+                    logger.info(f"Iteration {num_iterations}: Generated new revision")
+
+            except Exception as e:
+                logger.error(f"Error in Self-RAG revision iteration {num_iterations}: {e}")
+                break
+
+        # Return the final response after all iterations
+        was_revised = num_iterations > 1
+        return current_response, was_revised, num_iterations
+
+    def _parse_revision_evaluation(self, evaluation_text: str) -> tuple:
+        """Parse the revision evaluation to extract groundedness, citation, relevance."""
+        text = evaluation_text.upper()
+
+        # Parse groundedness
+        is_grounded = "GROUNDEDNESS: SUPPORTED" in text or "GROUNDEDNESS: PARTIAL" in text
+        if "GROUNDEDNESS: UNSUPPORTED" in text:
+            is_grounded = False
+
+        # Parse citation coverage
+        citation_complete = "CITATION COVERAGE: COMPLETE" in text or "CITATION COVERAGE: PARTIAL" in text
+        if "CITATION COVERAGE: MISSING" in text:
+            citation_complete = False
+
+        # Parse relevance
+        is_relevant = "RELEVANCE: RELEVANT" in text or "RELEVANCE: PARTIAL" in text
+        if "RELEVANCE: IRRELEVANT" in text:
+            is_relevant = False
+
+        return is_grounded, citation_complete, is_relevant
 
     async def chat(
         self,
@@ -414,12 +487,14 @@ IMPORTANT: You are operating in Self-RAG mode. When answering:
             )
             total_tokens += gen_tokens
 
-            # Step 5: Revision (if Self-RAG enabled)
+            # Step 5: Iterative Revision (if Self-RAG enabled)
+            revision_iterations = 0
             if self.enable_self_rag:
-                response, was_revised = await self._self_rag_revision(
-                    message, response, documents, metadatas
+                response, was_revised, revision_iterations = await self._self_rag_revision(
+                    message, response, documents, metadatas, max_iterations=3
                 )
                 revised = was_revised
+                total_tokens += revision_iterations * 150  # Approximate tokens per revision
 
             return {
                 "response": response,
@@ -427,7 +502,8 @@ IMPORTANT: You are operating in Self-RAG mode. When answering:
                 "tokens_used": total_tokens,
                 "retrieved": retrieved,
                 "graded": graded,
-                "revised": revised
+                "revised": revised,
+                "revision_iterations": revision_iterations
             }
 
         except Exception as e:

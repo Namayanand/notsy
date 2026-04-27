@@ -1,0 +1,109 @@
+{
+  "summary": {
+    "total_samples": 3,
+    "retrieval_accuracy": 0.6666666666666666,
+    "relevance_precision": 1.0,
+    "relevance_recall": 271.611,
+    "grounding_score": 0.8333333333333334,
+    "overall_score": 0.8333333333333334
+  },
+  "samples": [
+    {
+      "question": "What is photosynthesis?",
+      "ground_truth": "Photosynthesis is the process by which plants convert sunlight, water, and CO2 into glucose and oxygen.",
+      "retrieval": {
+        "decision": "RETRIEVE",
+        "expected": "RETRIEVE",
+        "correct": true,
+        "accuracy": 1.0
+      },
+      "relevance": {
+        "documents_retrieved": 295,
+        "graded_relevant": 295,
+        "expected": 2,
+        "precision": 1.0,
+        "recall": 147.5,
+        "f1": 1.987
+      },
+      "grounding": {
+        "response_length": 934,
+        "sources_retrieved": 5,
+        "citations_found": [
+          "C:\\Users\\ZAP\\Desktop\\notsy\\ai-service\\evaluation\\resource.pdf"
+        ],
+        "citations_expected": [
+          "resource.pdf"
+        ],
+        "has_citations": true,
+        "citations_match": false,
+        "all_expected_cited": false,
+        "grounded": true,
+        "grounding_score": 0.75
+      }
+    },
+    {
+      "question": "What is the capital of France?",
+      "ground_truth": "Paris",
+      "retrieval": {
+        "decision": "RETRIEVE",
+        "expected": "NO_RETRIEVE",
+        "correct": false,
+        "accuracy": 0.0
+      },
+      "relevance": {
+        "documents_retrieved": 135,
+        "graded_relevant": 135,
+        "expected": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "grounding": {
+        "response_length": 573,
+        "sources_retrieved": 5,
+        "citations_found": [
+          "C:\\Users\\ZAP\\Desktop\\notsy\\ai-service\\evaluation\\resource.pdf"
+        ],
+        "citations_expected": [],
+        "has_citations": true,
+        "citations_match": true,
+        "all_expected_cited": true,
+        "grounded": true,
+        "grounding_score": 1.0
+      }
+    },
+    {
+      "question": "Explain how photosynthesis works.",
+      "ground_truth": "Plants use chlorophyll to absorb sunlight, which powers chemical reactions that convert CO2 and water into glucose.",
+      "retrieval": {
+        "decision": "RETRIEVE",
+        "expected": "RETRIEVE",
+        "correct": true,
+        "accuracy": 1.0
+      },
+      "relevance": {
+        "documents_retrieved": 1999,
+        "graded_relevant": 1999,
+        "expected": 3,
+        "precision": 1.0,
+        "recall": 666.333,
+        "f1": 1.997
+      },
+      "grounding": {
+        "response_length": 611,
+        "sources_retrieved": 4,
+        "citations_found": [
+          "C:\\Users\\ZAP\\Desktop\\notsy\\ai-service\\evaluation\\resource.pdf"
+        ],
+        "citations_expected": [
+          "resource.pdf"
+        ],
+        "has_citations": true,
+        "citations_match": false,
+        "all_expected_cited": false,
+        "grounded": true,
+        "grounding_score": 0.75
+      }
+    }
+  ]
+}
