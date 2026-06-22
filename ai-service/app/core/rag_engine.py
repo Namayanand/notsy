@@ -4,6 +4,7 @@ import logging
 from typing import List, Dict, Any, Optional, AsyncIterator
 from urllib.parse import quote
 from groq import Groq
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from app.core.learning_modes import get_mode_config, build_system_prompt
 from app.services.vector_store import vector_store
@@ -107,7 +108,7 @@ If UNSUPPORTED or MISSING, provide a revised response:
             if match:
                 if current_doc and 'grade' in current_doc:
                     results.append(current_doc)
-                current_doc = {'grade': match.group(1).upper()}
+                current_doc = {'grade': match.group(2).upper()}
             # Look for reason lines
             reason_match = re.search(r'Reason:\s*(.+)', line, re.IGNORECASE)
             if reason_match and current_doc:
@@ -121,7 +122,7 @@ class RAGEngine:
     def __init__(self):
         self.groq_api_key = os.getenv("GROQ_API_KEY")
         self.client = None
-        self.model = "llama-3.3-70b-versatile"
+        self.model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         self.web_search_api_key = os.getenv("WEBSEARCH_API_KEY", "")
         self.self_rag = SelfRAG()
         self.enable_self_rag = os.getenv("ENABLE_SELF_RAG", "true").lower() == "true"
@@ -133,12 +134,21 @@ class RAGEngine:
             self.client = Groq(api_key=self.groq_api_key)
         return self.client
 
+    @retry(
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        stop=stop_after_attempt(3),
+        retry=retry_if_exception_type(Exception),
+        reraise=True
+    )
+    def _groq_create(self, **kwargs):
+        """Call Groq API with automatic exponential backoff retry."""
+        return self._get_client().chat.completions.create(**kwargs)
+
     async def _self_rag_retrieval_decision(self, message: str) -> bool:
         """Step 1: Decide if retrieval is needed using Self-RAG."""
         try:
-            client = self._get_client()
             prompt = SelfRAG.RETRIEVAL_PROMPT.format(question=message)
-            response = client.chat.completions.create(
+            response = self._groq_create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
@@ -158,7 +168,6 @@ class RAGEngine:
     ) -> tuple:
         """Step 2: Grade retrieved documents for relevance."""
         try:
-            client = self._get_client()
             docs_formatted = []
             for i, doc in enumerate(documents):
                 source = metadatas[i].get("source", "Unknown") if i < len(metadatas) else "Unknown"
@@ -172,7 +181,7 @@ class RAGEngine:
                 source2=metadatas[1].get("source", "doc2") if len(metadatas) > 1 else "doc2"
             )
 
-            response = client.chat.completions.create(
+            response = self._groq_create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
@@ -251,8 +260,7 @@ IMPORTANT: You are operating in Self-RAG mode. When answering:
                 {"role": "user", "content": prompt}
             ]
 
-            client = self._get_client()
-            chat_completion = client.chat.completions.create(
+            chat_completion = self._groq_create(
                 model=self.model,
                 messages=messages,
                 temperature=mode_config.get("temperature", 0.3),
@@ -301,8 +309,7 @@ IMPORTANT: You are operating in Self-RAG mode. When answering:
                     documents=docs_text
                 )
 
-                client = self._get_client()
-                chat_completion = client.chat.completions.create(
+                chat_completion = self._groq_create(
                     model=self.model,
                     messages=[{"role": "user", "content": evaluation_prompt}],
                     temperature=0.1,
@@ -345,7 +352,7 @@ Generate a revised response that:
 
 Respond with ONLY the revised response, no explanation."""
 
-                    revision_completion = client.chat.completions.create(
+                    revision_completion = self._groq_create(
                         model=self.model,
                         messages=[{"role": "user", "content": revision_prompt}],
                         temperature=0.1,
@@ -542,8 +549,7 @@ Respond with ONLY the revised response, no explanation."""
             })
         messages.append({"role": "user", "content": message})
 
-        client = self._get_client()
-        chat_completion = client.chat.completions.create(
+        chat_completion = self._groq_create(
             model=self.model,
             messages=messages,
             temperature=mode_config.get("temperature", 0.3),
@@ -584,8 +590,7 @@ Respond with ONLY the revised response, no explanation."""
             {"role": "user", "content": message}
         ]
 
-        client = self._get_client()
-        chat_completion = client.chat.completions.create(
+        chat_completion = self._groq_create(
             model=self.model,
             messages=messages,
             temperature=mode_config.get("temperature", 0.3),
@@ -729,7 +734,7 @@ Respond with ONLY the revised response, no explanation."""
             final_system_prompt += "\n\nNo external retrieval needed. Answer from your knowledge."
 
         messages = [{"role": "system", "content": final_system_prompt}]
-        for msg in history[-10:]:
+        for msg in (history or [])[-10:]:
             messages.append({
                 "role": msg.get("role", "user"),
                 "content": msg.get("content", "")
@@ -783,7 +788,7 @@ Respond with ONLY the revised response, no explanation."""
 IMPORTANT: Use citations in [Source: filename] format for all claims from documents."""
 
         messages = [{"role": "system", "content": final_system_prompt}]
-        for msg in history[-10:]:
+        for msg in (history or [])[-10:]:
             messages.append({
                 "role": msg.get("role", "user"),
                 "content": msg.get("content", "")
@@ -849,8 +854,7 @@ IMPORTANT: Use citations in [Source: filename] format for all claims from docume
     def check_health(self) -> bool:
         """Check if the Groq API is accessible."""
         try:
-            client = self._get_client()
-            client.chat.completions.create(
+            self._groq_create(
                 model=self.model,
                 messages=[{"role": "user", "content": "Hi"}],
                 max_tokens=5
