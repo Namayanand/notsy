@@ -1,20 +1,30 @@
 import os
 import logging
 from typing import List, Dict, Any, Optional
-from sentence_transformers import SentenceTransformer
 from app.core.document_loader import DocumentLoader
 from app.services.vector_store import vector_store
 
 logger = logging.getLogger(__name__)
 
-# Global embedding model instance
+# Import at module load time to avoid lazy-import race conditions in async contexts.
+try:
+    from sentence_transformers import SentenceTransformer as _SentenceTransformer
+    _SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    _SentenceTransformer = None
+    _SENTENCE_TRANSFORMERS_AVAILABLE = False
+    logger.warning("sentence-transformers not installed; embedding model unavailable")
+
+# Global embedding model instance — initialised once at module load.
 _model = None
 
 
 def get_embedding_model():
     global _model
+    if not _SENTENCE_TRANSFORMERS_AVAILABLE:
+        raise ImportError("sentence-transformers is not installed")
     if _model is None:
-        _model = SentenceTransformer('all-MiniLM-L6-v2')
+        _model = _SentenceTransformer('all-MiniLM-L6-v2')
     return _model
 
 
