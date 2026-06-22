@@ -139,7 +139,7 @@ class MemoryStore:
 
             memories = []
             documents = results.get("documents", [[]])[0]
-            metadatas = results.get("metadatas", [{}])[0]
+            metadatas = results.get("metadatas", [[{}]])[0]
             distances = results.get("distances", [[]])[0]
 
             for i, doc in enumerate(documents):
@@ -202,8 +202,17 @@ class MemoryStore:
             topic_counts = Counter(weak_topics)
             top_weak = [topic for topic, count in topic_counts.most_common(5)]
 
-            # Calculate improvement trend (mock for now)
-            improvement_trend = [75, 68, 72, 80, 85, 78, 82, 88]
+            # Calculate improvement trend from real assessment scores (chronological order)
+            improvement_trend = []
+            for a in assessments:
+                score = a.get("metadata", {}).get("score")
+                if score is not None:
+                    try:
+                        improvement_trend.append(float(score))
+                    except (TypeError, ValueError):
+                        pass
+            # Keep the last 20 data points; fall back to empty list (not mock data)
+            improvement_trend = improvement_trend[-20:]
 
             return {
                 "weak_topics": top_weak,
