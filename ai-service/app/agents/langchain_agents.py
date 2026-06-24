@@ -5,8 +5,27 @@ Uses LangChain's AgentExecutor and tool calling capabilities
 import os
 import json
 import logging
+from json import JSONDecodeError, JSONDecoder
 from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
+
+
+def _extract_first_json(text: str):
+    """
+    Extract the first valid JSON value (object or array) from *text* using
+    JSONDecoder.raw_decode — avoids the greedy `re.search(r'\\[.*\\]', …, re.DOTALL)`
+    pitfall that swallows sibling JSON objects.
+    Returns the parsed value, or raises JSONDecodeError if nothing is found.
+    """
+    decoder = JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch in ('{', '['):
+            try:
+                obj, _ = decoder.raw_decode(text, i)
+                return obj
+            except JSONDecodeError:
+                continue
+    raise JSONDecodeError("No JSON object or array found", text, 0)
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -205,11 +224,9 @@ Return ONLY the JSON array, no additional text."""
         try:
             questions = json.loads(content)
         except json.JSONDecodeError:
-            import re
-            match = re.search(r'\[.*\]', content, re.DOTALL)
-            if match:
-                questions = json.loads(match.group())
-            else:
+            try:
+                questions = _extract_first_json(content)
+            except json.JSONDecodeError:
                 questions = []
 
         return {"questions": questions, "topic": topic, "difficulty": difficulty}
@@ -258,11 +275,9 @@ Provide feedback in JSON format:
         try:
             feedback = json.loads(content)
         except json.JSONDecodeError:
-            import re
-            match = re.search(r'\{.*\}', content, re.DOTALL)
-            if match:
-                feedback = json.loads(match.group())
-            else:
+            try:
+                feedback = _extract_first_json(content)
+            except json.JSONDecodeError:
                 feedback = {"is_correct": False, "score": 0, "feedback": "Could not evaluate"}
 
         return feedback
@@ -319,11 +334,9 @@ Return ONLY the JSON array, no additional text. Include 5-8 topics in logical or
         try:
             roadmap = json.loads(content)
         except json.JSONDecodeError:
-            import re
-            match = re.search(r'\[.*\]', content, re.DOTALL)
-            if match:
-                roadmap = json.loads(match.group())
-            else:
+            try:
+                roadmap = _extract_first_json(content)
+            except json.JSONDecodeError:
                 roadmap = []
 
         return {"roadmap": roadmap, "goal": goal}
@@ -489,11 +502,9 @@ Keep it concise and actionable. Format as JSON:
         try:
             result = json.loads(content)
         except json.JSONDecodeError:
-            import re
-            match = re.search(r'\{.*\}', content, re.DOTALL)
-            if match:
-                result = json.loads(match.group())
-            else:
+            try:
+                result = _extract_first_json(content)
+            except json.JSONDecodeError:
                 result = {"summary": content, "key_takeaways": [], "next_steps": []}
 
         return result

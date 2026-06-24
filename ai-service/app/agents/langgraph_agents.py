@@ -5,9 +5,26 @@ Uses LangChain for tools, prompts, and LLM integration
 import os
 import json
 import logging
+from json import JSONDecodeError, JSONDecoder
 from typing import TypedDict, List, Dict, Any, Optional, Annotated, Sequence
 from enum import Enum
 from operator import add
+
+
+def _extract_first_json(text: str):
+    """
+    Extract the first valid JSON value from *text* using JSONDecoder.raw_decode.
+    Avoids greedy regex pitfalls with nested brackets.
+    """
+    decoder = JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch in ('{', '['):
+            try:
+                obj, _ = decoder.raw_decode(text, i)
+                return obj
+            except JSONDecodeError:
+                continue
+    raise JSONDecodeError("No JSON object or array found", text, 0)
 
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
@@ -52,6 +69,7 @@ class LearningState(TypedDict):
     user_id: int
     session_id: str
     goal: str
+    learning_mode: Optional[str]  # eli5 | medium | deep — controls tutor depth
     roadmap: List[Dict[str, Any]]
     current_topic_index: int
     current_topic: Optional[str]
@@ -284,11 +302,9 @@ async def planner_node(state: LearningState) -> LearningState:
         try:
             roadmap = json.loads(content)
         except json.JSONDecodeError:
-            import re
-            match = re.search(r'\[.*\]', content, re.DOTALL)
-            if match:
-                roadmap = json.loads(match.group())
-            else:
+            try:
+                roadmap = _extract_first_json(content)
+            except json.JSONDecodeError:
                 roadmap = []
     except Exception as e:
         logger.error(f"Error generating roadmap: {e}")
@@ -383,10 +399,10 @@ async def tutor_node(state: LearningState) -> LearningState:
     documents = state.get("retrieved_documents", [])
     context = "\n\n".join([doc["content"] for doc in documents[:3]])
 
-    # Determine explanation depth
-    depth = "medium"
+    # Determine explanation depth — prefer explicit state value, then check weak topics
+    depth = state.get("learning_mode") or "medium"
     weak_topics = state.get("weak_topics", [])
-    if topic in weak_topics:
+    if topic in weak_topics and depth == "medium":
         depth = "eli5"
 
     # Generate explanation using LLM
@@ -467,11 +483,9 @@ Return ONLY the JSON array, no additional text.""")
         try:
             questions = json.loads(content)
         except json.JSONDecodeError:
-            import re
-            match = re.search(r'\[.*\]', content, re.DOTALL)
-            if match:
-                questions = json.loads(match.group())
-            else:
+            try:
+                questions = _extract_first_json(content)
+            except json.JSONDecodeError:
                 questions = []
     except Exception as e:
         logger.error(f"Error generating quiz: {e}")
@@ -524,10 +538,9 @@ async def memory_node(state: LearningState) -> LearningState:
 
         # Parse patterns from LLM response
         try:
-            import re
-            match = re.search(r'\[.*\]', content, re.DOTALL)
-            if match:
-                patterns = json.loads(match.group())
+            patterns = _extract_first_json(content)
+            if not isinstance(patterns, list):
+                patterns = []
         except (json.JSONDecodeError, Exception) as e:
             logger.warning(f"Could not parse patterns from LLM response: {e}")
 
