@@ -4,6 +4,7 @@ import uuid
 import json
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.agents.base import AgentInput
@@ -14,8 +15,65 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Store active sessions in memory (would use Redis in production)
-sessions: Dict[str, Dict[str, Any]] = {}
+# ---------------------------------------------------------------------------
+# Session store — Redis-backed with in-memory fallback
+# ---------------------------------------------------------------------------
+
+_redis_client = None
+_SESSION_TTL = 86400  # 24 hours
+
+
+def _get_redis():
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    redis_url = os.getenv("REDIS_URL", "")
+    if not redis_url:
+        return None
+    try:
+        import redis
+        _redis_client = redis.from_url(redis_url, decode_responses=True)
+        _redis_client.ping()
+        logger.info("Session store: connected to Redis")
+    except Exception as e:
+        logger.warning(f"Redis unavailable ({e}), falling back to in-memory sessions")
+        _redis_client = None
+    return _redis_client
+
+
+# Fallback in-memory dict used when Redis is not available
+_sessions_local: Dict[str, Dict[str, Any]] = {}
+
+
+def _set_session(session_id: str, data: Dict[str, Any]) -> None:
+    r = _get_redis()
+    if r:
+        r.setex(f"session:{session_id}", _SESSION_TTL, json.dumps(data))
+    else:
+        _sessions_local[session_id] = data
+
+
+def _get_session(session_id: str) -> Optional[Dict[str, Any]]:
+    r = _get_redis()
+    if r:
+        raw = r.get(f"session:{session_id}")
+        return json.loads(raw) if raw else None
+    return _sessions_local.get(session_id)
+
+
+def _delete_session(session_id: str) -> None:
+    r = _get_redis()
+    if r:
+        r.delete(f"session:{session_id}")
+    else:
+        _sessions_local.pop(session_id, None)
+
+
+def _session_exists(session_id: str) -> bool:
+    return _get_session(session_id) is not None
+
+
+# ---------------------------------------------------------------------------
 
 # Initialize orchestrator on startup
 _orchestrator_initialized = False
@@ -36,6 +94,7 @@ class StartSessionRequest(BaseModel):
     goal: str
     topic_id: Optional[int] = None
     notebook_id: Optional[int] = None
+    learning_mode: Optional[str] = "medium"  # eli5 | medium | deep
 
 
 class AgentMessageRequest(BaseModel):
@@ -78,13 +137,14 @@ async def start_session(request: StartSessionRequest):
     if request.notebook_id:
         await memory_store.set_session_context(session_id, "notebook_id", request.notebook_id)
 
-    sessions[session_id] = {
+    _set_session(session_id, {
         "user_id": request.user_id,
         "goal": request.goal,
         "started_at": str(uuid.uuid4()),  # timestamp
         "topic_id": request.topic_id,
-        "notebook_id": request.notebook_id
-    }
+        "notebook_id": request.notebook_id,
+        "learning_mode": request.learning_mode or "medium",
+    })
 
     logger.info(f"Started session {session_id} for user {request.user_id}")
 
@@ -98,10 +158,9 @@ async def start_session(request: StartSessionRequest):
 @router.post("/message")
 async def send_message(request: AgentMessageRequest):
     """Send a message to the active session"""
-    if request.session_id not in sessions:
+    session = _get_session(request.session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-
-    session = sessions[request.session_id]
     user_id = session["user_id"]
 
     # Get session context
@@ -135,10 +194,14 @@ async def send_message(request: AgentMessageRequest):
             context
         )
 
-    # Update session context with results
+    # Update session context with results and persist to memory store
+    updates = {}
     for result in results:
-        context[f"{result.agent_type}_result"] = result.result
-        context["active_agent"] = result.agent_type
+        updates[f"{result.agent_type}_result"] = result.result
+        updates["active_agent"] = result.agent_type
+
+    await memory_store.update_session_context(request.session_id, updates)
+    context.update(updates)
 
     return {
         "results": [r.model_dump() for r in results],
@@ -149,11 +212,11 @@ async def send_message(request: AgentMessageRequest):
 @router.get("/state/{session_id}")
 async def get_session_state(session_id: str):
     """Get current session state"""
-    if session_id not in sessions:
+    session = _get_session(session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
     context = await memory_store.get_all_session_context(session_id)
-    session = sessions[session_id]
 
     # Get roadmap if exists
     roadmap = context.get("roadmap", [])
@@ -176,7 +239,7 @@ async def get_session_state(session_id: str):
 @router.get("/roadmap/{session_id}")
 async def get_roadmap(session_id: str):
     """Get the current learning roadmap"""
-    if session_id not in sessions:
+    if not _session_exists(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
 
     roadmap = await memory_store.get_session_context(session_id, "roadmap")
@@ -192,10 +255,9 @@ async def get_roadmap(session_id: str):
 async def generate_quiz(session_id: str, topic: str, difficulty: str = "medium",
                         num_questions: int = 5):
     """Generate a quiz for a topic"""
-    if session_id not in sessions:
+    session = _get_session(session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-
-    session = sessions[session_id]
     user_id = session["user_id"]
 
     # Execute evaluator agent to generate quiz
@@ -225,10 +287,9 @@ async def generate_quiz(session_id: str, topic: str, difficulty: str = "medium",
 @router.post("/quiz/evaluate")
 async def evaluate_answer(request: EvaluateAnswerRequest):
     """Evaluate a user's quiz answer"""
-    if request.session_id not in sessions:
+    session = _get_session(request.session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-
-    session = sessions[request.session_id]
     user_id = session["user_id"]
 
     # Execute evaluator agent
@@ -270,14 +331,14 @@ async def get_insights(user_id: int):
 @router.websocket("/stream/{session_id}")
 async def stream_session(websocket: WebSocket, session_id: str):
     """WebSocket for real-time agent streaming"""
-    if session_id not in sessions:
+    session = _get_session(session_id)
+    if session is None:
         await websocket.close(code=4004, reason="Session not found")
         return
 
     await websocket.accept()
 
     try:
-        session = sessions[session_id]
         user_id = session["user_id"]
         context = await memory_store.get_all_session_context(session_id)
         orch = get_orchestrator()
@@ -317,10 +378,9 @@ async def stream_session(websocket: WebSocket, session_id: str):
 @router.post("/end-session/{session_id}")
 async def end_session(session_id: str):
     """End an agent session"""
-    if session_id in sessions:
-        del sessions[session_id]
+    _delete_session(session_id)
 
-    # Clean up session context
+    # Clean up session context from memory store
     from app.core.memory_store import memory_store
     await memory_store.in_memory.delete_session(session_id)
 
@@ -340,14 +400,15 @@ async def langgraph_start_session(request: StartSessionRequest):
     await memory_store.set_session_context(session_id, "topic_id", request.topic_id)
     await memory_store.set_session_context(session_id, "notebook_id", request.notebook_id)
 
-    sessions[session_id] = {
+    _set_session(session_id, {
         "user_id": request.user_id,
         "goal": request.goal,
         "started_at": str(uuid.uuid4()),
         "topic_id": request.topic_id,
         "notebook_id": request.notebook_id,
-        "agent_type": "langgraph"
-    }
+        "learning_mode": request.learning_mode or "medium",
+        "agent_type": "langgraph",
+    })
 
     logger.info(f"Started LangGraph session {session_id} for user {request.user_id}")
 
@@ -362,10 +423,9 @@ async def langgraph_start_session(request: StartSessionRequest):
 @router.post("/langgraph/run")
 async def langgraph_run_workflow(session_id: str, goal: str = None):
     """Run the LangGraph learning workflow"""
-    if session_id not in sessions:
+    session = _get_session(session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-
-    session = sessions[session_id]
     user_id = session["user_id"]
 
     # Get goal from session or parameter
@@ -380,6 +440,7 @@ async def langgraph_run_workflow(session_id: str, goal: str = None):
         "user_id": user_id,
         "session_id": session_id,
         "goal": learning_goal,
+        "learning_mode": session.get("learning_mode", "medium"),
         "roadmap": [],
         "current_topic_index": 0,
         "current_topic": None,
@@ -409,10 +470,9 @@ async def langgraph_run_workflow(session_id: str, goal: str = None):
 @router.post("/langgraph/run-stream")
 async def langgraph_run_stream(session_id: str, goal: str = None):
     """Run LangGraph workflow with streaming"""
-    if session_id not in sessions:
+    session = _get_session(session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-
-    session = sessions[session_id]
     user_id = session["user_id"]
 
     learning_goal = goal or session.get("goal", "General Learning")
@@ -425,6 +485,7 @@ async def langgraph_run_stream(session_id: str, goal: str = None):
         "user_id": user_id,
         "session_id": session_id,
         "goal": learning_goal,
+        "learning_mode": session.get("learning_mode", "medium"),
         "roadmap": [],
         "current_topic_index": 0,
         "current_topic": None,
@@ -441,13 +502,13 @@ async def langgraph_run_stream(session_id: str, goal: str = None):
 
     async def generate():
         try:
-            async for event in learning_graph.ainvoke(initial_state):
+            async for event in learning_graph.astream(initial_state):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             logger.error(f"LangGraph stream error: {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-    return generate()
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 # ============= LangChain Routes =============
