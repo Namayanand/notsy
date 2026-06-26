@@ -12,10 +12,10 @@ class VectorStore:
         self.persist_directory = persist_directory
         os.makedirs(persist_directory, exist_ok=True)
 
-        self.client = chromadb.Client(Settings(
-            persist_directory=persist_directory,
-            anonymized_telemetry=False
-        ))
+        self.client = chromadb.PersistentClient(
+            path=persist_directory,
+            settings=Settings(anonymized_telemetry=False)
+        )
 
         # Create curated base collection
         self._curated_collection_name = "curated_base"
@@ -124,7 +124,7 @@ class VectorStore:
             all_results = []
 
             for coll_info in collections:
-                coll_name = coll_info.get("name", "")
+                coll_name = coll_info.name if hasattr(coll_info, "name") else coll_info.get("name", "")
                 # Only search topic collections (not curated base)
                 if coll_name.startswith("topic_") and coll_name != self._curated_collection_name:
                     try:

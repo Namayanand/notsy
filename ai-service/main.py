@@ -1,3 +1,4 @@
+import os
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -12,10 +13,14 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# CORS middleware - allow all origins
+# CORS middleware — origins whitelisted via ALLOWED_ORIGINS env var (comma-separated).
+# Falls back to localhost only so wildcard "*" is never used in production.
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000")
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
