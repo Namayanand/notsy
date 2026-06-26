@@ -31,8 +31,7 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.tools import tool, BaseTool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.agent import AgentExecutor
-from langchain.agents import create_openai_functions_agent, create_structured_chat_agent
+from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
 
@@ -556,12 +555,12 @@ Always use the appropriate tool to help the user. Use clear, educational languag
     prompt = ChatPromptTemplate.from_messages([
         SystemMessage(content=system_prompt),
         MessagesPlaceholder(variable_name="chat_history", optional=True),
-        HumanMessage(content="{input}"),
+        ("human", "{input}"),
         MessagesPlaceholder(variable_name="agent_scratchpad")
     ])
 
     # Create agent
-    agent = create_openai_functions_agent(llm, all_tools, prompt)
+    agent = create_tool_calling_agent(llm, all_tools, prompt)
     executor = AgentExecutor(agent=agent, tools=all_tools, verbose=True)
 
     return executor
@@ -583,12 +582,12 @@ Always tailor your explanation depth to the user's demonstrated understanding le
 
     prompt = ChatPromptTemplate.from_messages([
         SystemMessage(content=system_prompt),
-        HumanMessage(content="{input}"),
+        ("human", "{input}"),
         MessagesPlaceholder(variable_name="agent_scratchpad")
     ])
 
     tutor_tools = [search_notes, semantic_search, explain_concept, retrieve_memory]
-    agent = create_openai_functions_agent(llm, tutor_tools, prompt)
+    agent = create_tool_calling_agent(llm, tutor_tools, prompt)
     executor = AgentExecutor(agent=agent, tools=tutor_tools, verbose=True)
 
     return executor
@@ -610,12 +609,12 @@ Generate appropriate quizzes and provide constructive feedback on answers."""
 
     prompt = ChatPromptTemplate.from_messages([
         SystemMessage(content=system_prompt),
-        HumanMessage(content="{input}"),
+        ("human", "{input}"),
         MessagesPlaceholder(variable_name="agent_scratchpad")
     ])
 
     eval_tools = [generate_quiz, evaluate_answer, store_memory, retrieve_memory]
-    agent = create_openai_functions_agent(llm, eval_tools, prompt)
+    agent = create_tool_calling_agent(llm, eval_tools, prompt)
     executor = AgentExecutor(agent=agent, tools=eval_tools, verbose=True)
 
     return executor
@@ -637,12 +636,12 @@ Create roadmaps that address the user's goals and weak areas."""
 
     prompt = ChatPromptTemplate.from_messages([
         SystemMessage(content=system_prompt),
-        HumanMessage(content="{input}"),
+        ("human", "{input}"),
         MessagesPlaceholder(variable_name="agent_scratchpad")
     ])
 
     plan_tools = [generate_roadmap, get_weak_topics, retrieve_memory, store_memory]
-    agent = create_openai_functions_agent(llm, plan_tools, prompt)
+    agent = create_tool_calling_agent(llm, plan_tools, prompt)
     executor = AgentExecutor(agent=agent, tools=plan_tools, verbose=True)
 
     return executor
@@ -734,12 +733,12 @@ Generate helpful summaries with key takeaways and next steps."""
 
     prompt = ChatPromptTemplate.from_messages([
         SystemMessage(content=system_prompt),
-        HumanMessage(content="{input}"),
+        ("human", "{input}"),
         MessagesPlaceholder(variable_name="agent_scratchpad")
     ])
 
     summariser_tools = [summarise_concepts, retrieve_memory, store_memory]
-    agent = create_openai_functions_agent(llm, summariser_tools, prompt)
+    agent = create_tool_calling_agent(llm, summariser_tools, prompt)
     executor = AgentExecutor(agent=agent, tools=summariser_tools, verbose=True)
 
     return executor
