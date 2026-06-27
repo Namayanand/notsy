@@ -161,6 +161,8 @@ http://localhost:8000/docs
 | `backend/.../service/QuizService.java` | Added missing `import com.notsy.dto.response.QuizQuestionResponse` — it's a top-level class, not nested in `QuizResponse`, so the wildcard `QuizResponse.*` didn't cover it |
 | `backend/.../a2a/A2ATaskHistoryController.java` | `user.getId()` returns `Long` but `A2ATask.userId` is `UUID`; replaced `UUID.fromString(...)` ternary with `new UUID(0, user.getId())` for deterministic mapping (both call sites) |
 | `backend/.../a2a/A2AController.java` | Added explicit `<Map<String,Object>>` type witness on `notFound().build()` so javac resolves the `Mono<ResponseEntity<Map<String,Object>>>` return type |
+| `backend/.../a2a/A2AController.java` | Force `Map.<String,Object>of()` type witness in `.map()` so javac infers correct `Mono<ResponseEntity<Map<String,Object>>>` chain |
+| `backend/.../security/SecurityConfig.java` | `setAllowedOrigins("*")` → `setAllowedOriginPatterns("*")` (Spring Security 6 rejects wildcard in the former); added `HttpMethod.OPTIONS, "/**"` to `permitAll()` so CORS preflight is never blocked by the auth filter |
 
 **Phase C — Pre-go-live architectural fixes (all three now done)**
 | File | Change |
