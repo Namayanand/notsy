@@ -163,6 +163,7 @@ http://localhost:8000/docs
 | `backend/.../a2a/A2AController.java` | Added explicit `<Map<String,Object>>` type witness on `notFound().build()` so javac resolves the `Mono<ResponseEntity<Map<String,Object>>>` return type |
 | `backend/.../a2a/A2AController.java` | Force `Map.<String,Object>of()` type witness in `.map()` so javac infers correct `Mono<ResponseEntity<Map<String,Object>>>` chain |
 | `backend/.../security/SecurityConfig.java` | `setAllowedOrigins("*")` → `setAllowedOriginPatterns("*")` (Spring Security 6 rejects wildcard in the former); added `HttpMethod.OPTIONS, "/**"` to `permitAll()` so CORS preflight is never blocked by the auth filter |
+| `backend/.../config/CorsConfig.java` | **New file** — standalone `FilterRegistrationBean<CorsFilter>` at `Ordered.HIGHEST_PRECEDENCE`; runs before Spring Security's filter chain entirely, guaranteeing CORS headers on OPTIONS preflights regardless of security context |
 
 **Phase C — Pre-go-live architectural fixes (all three now done)**
 | File | Change |
