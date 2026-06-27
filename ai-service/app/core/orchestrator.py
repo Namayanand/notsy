@@ -210,25 +210,29 @@ orchestrator = Orchestrator()
 
 
 def initialize_orchestrator():
-    """Initialize and register LangChain + LangGraph agents"""
+    """Initialize and register all named LangChain + LangGraph agents"""
     from app.agents import (
         learning_agent_executor,
+        tutor_agent_executor,
+        evaluator_agent_executor,
+        planner_agent_executor,
+        summariser_agent_executor,
         learning_graph,
     )
 
-    # Register LangChain agent
-    class LangChainAgentWrapper(BaseAgent):
-        async def run(self, input: AgentInput) -> AgentOutput:
-            # Extract message from payload
-            payload = input.payload or {}
-            message = payload.get("message", payload.get("content", str(payload)))
-            result = await learning_agent_executor.ainvoke({"input": message})
-            return AgentOutput(
-                agent_type="langchain",
-                result={"response": result.get("output", "")},
-                next_agent=None,
-                metadata={}
-            )
+    def make_langchain_wrapper(executor, agent_name: str):
+        class LangChainAgentWrapper(BaseAgent):
+            async def run(self, input: AgentInput) -> AgentOutput:
+                payload = input.payload or {}
+                message = payload.get("message", payload.get("content", str(payload)))
+                result = await executor.ainvoke({"input": message})
+                return AgentOutput(
+                    agent_type=agent_name,
+                    result={"response": result.get("output", "")},
+                    next_agent=None,
+                    metadata={}
+                )
+        return LangChainAgentWrapper()
 
     # Register LangGraph agent
     class LangGraphAgentWrapper(BaseAgent):
@@ -253,9 +257,14 @@ def initialize_orchestrator():
             )
 
     orchestrator.register_agents({
-        "langchain": LangChainAgentWrapper(),
+        "langchain": make_langchain_wrapper(learning_agent_executor, "langchain"),
+        "learning":  make_langchain_wrapper(learning_agent_executor, "learning"),
+        "tutor":     make_langchain_wrapper(tutor_agent_executor, "tutor"),
+        "evaluator": make_langchain_wrapper(evaluator_agent_executor, "evaluator"),
+        "planner":   make_langchain_wrapper(planner_agent_executor, "planner"),
+        "summariser": make_langchain_wrapper(summariser_agent_executor, "summariser"),
         "langgraph": LangGraphAgentWrapper(),
     })
 
-    logger.info("Initialized orchestrator with LangChain + LangGraph agents")
+    logger.info("Initialized orchestrator with LangChain (learning/tutor/evaluator/planner/summariser) + LangGraph agents")
     return orchestrator

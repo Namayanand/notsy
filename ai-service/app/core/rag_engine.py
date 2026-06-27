@@ -221,7 +221,8 @@ class RAGEngine:
         metadatas: List[Dict],
         learning_mode: str,
         explain_depth: Optional[str] = None,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
+        history: Optional[List[Dict[str, str]]] = None
     ) -> tuple:
         """Step 3: Generate response with citations."""
         try:
@@ -255,10 +256,10 @@ IMPORTANT: You are operating in Self-RAG mode. When answering:
 2. Always cite sources using [Source: filename] format
 3. If information is not in the documents, say so explicitly"""
 
-            messages = [
-                {"role": "system", "content": final_system_prompt},
-                {"role": "user", "content": prompt}
-            ]
+            messages = [{"role": "system", "content": final_system_prompt}]
+            for msg in (history or [])[-10:]:
+                messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+            messages.append({"role": "user", "content": prompt})
 
             chat_completion = self._groq_create(
                 model=self.model,
@@ -490,7 +491,7 @@ Respond with ONLY the revised response, no explanation."""
 
             # Step 4: Generate with citations
             response, gen_tokens = await self._self_rag_generate(
-                message, documents, metadatas, learning_mode, explain_depth, system_prompt
+                message, documents, metadatas, learning_mode, explain_depth, system_prompt, history
             )
             total_tokens += gen_tokens
 
