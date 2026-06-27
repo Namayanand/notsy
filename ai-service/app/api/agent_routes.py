@@ -5,7 +5,7 @@ import json
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.agents.base import AgentInput
 from app.core.orchestrator import orchestrator, initialize_orchestrator, FlowType
@@ -91,7 +91,7 @@ def get_orchestrator():
 # Request/Response models
 class StartSessionRequest(BaseModel):
     user_id: int
-    goal: str
+    goal: str = Field(..., min_length=1)
     topic_id: Optional[int] = None
     notebook_id: Optional[int] = None
     learning_mode: Optional[str] = "medium"  # eli5 | medium | deep
@@ -594,7 +594,7 @@ async def get_agent_registry():
                 "version": "1.0.0",
                 "url": "http://localhost:8000",
                 "skills": [
-                    {"id": "learning_workflow", "name": "Learning Workflow", "description": "Full learning pipeline: plan → retrieve → tutor → quiz → track"},
+                    {"id": "learning_workflow", "name": "Learning Workflow", "description": "Full learning pipeline: plan -> retrieve -> tutor -> quiz -> track"},
                     {"id": "conditional_learning", "name": "Adaptive Learning", "description": "Adapts based on user performance"}
                 ]
             }

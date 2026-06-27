@@ -1,7 +1,7 @@
 import logging
 import json
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 from app.services.vector_store import vector_store
@@ -12,13 +12,13 @@ router = APIRouter()
 
 
 class SemanticSearchRequest(BaseModel):
-    query: str
+    query: str = Field(..., min_length=1)
     limit: int = 10
     user_id: Optional[int] = None
     notebook_id: Optional[int] = None
 
 
-@router.post("/search/semantic")
+@router.post("/semantic")
 async def semantic_search(request: SemanticSearchRequest):
     """Perform semantic search across user's indexed content."""
     try:
@@ -41,7 +41,7 @@ async def semantic_search(request: SemanticSearchRequest):
         return {"results": [], "error": str(e)}
 
 
-@router.post("/search/global")
+@router.post("/global")
 async def global_search(request: SemanticSearchRequest):
     """Global semantic search across all user's content and curated base."""
     try:

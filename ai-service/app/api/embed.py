@@ -94,7 +94,7 @@ async def callback_failure(resource_id: int, error_message: str):
         logger.error(f"Failed to send failure callback for resource {resource_id}: {e}")
 
 
-@router.post("/embed")
+@router.post("")
 async def embed_resource(request: EmbedResourceRequest, background_tasks: BackgroundTasks):
     """Trigger async embedding of a resource."""
     background_tasks.add_task(embed_resource_task, request)
@@ -105,17 +105,19 @@ async def embed_resource(request: EmbedResourceRequest, background_tasks: Backgr
     }
 
 
-@router.delete("/embed/topic/{topic_id}")
+@router.delete("/topic/{topic_id}")
 async def delete_topic_embeddings(topic_id: int):
     """Delete all embeddings for a topic."""
-    success = vector_store.delete_collection(topic_id)
-    if success:
+    result = vector_store.delete_collection(topic_id)
+    if result == "deleted":
         return {"status": "deleted", "topic_id": topic_id}
+    elif result == "not_found":
+        raise HTTPException(status_code=404, detail=f"No embeddings found for topic {topic_id}")
     else:
         raise HTTPException(status_code=500, detail="Failed to delete embeddings")
 
 
-@router.get("/embed/status/{resource_id}")
+@router.get("/status/{resource_id}")
 async def get_embed_status(resource_id: int):
     """Get embedding status for a resource."""
     # Note: This would need to be tracked separately since ChromaDB doesn't store resource_id
