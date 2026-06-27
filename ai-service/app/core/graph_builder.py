@@ -11,7 +11,7 @@ class GraphBuilder:
     def __init__(self):
         self.groq_api_key = os.getenv("GROQ_API_KEY")
         self.client = None
-        self.model = "llama3-70b-8192"
+        self.model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
     def _get_client(self):
         if self.client is None:

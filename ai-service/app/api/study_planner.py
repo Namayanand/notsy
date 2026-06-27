@@ -1,3 +1,4 @@
+import os
 import logging
 import json
 from fastapi import APIRouter
@@ -70,7 +71,7 @@ Format: [{{"front": "question", "back": "answer", "type": "BASIC|MULTIPLE_CHOICE
 
         client = rag_engine._get_client()
         response = client.chat.completions.create(
-            model="llama3-70b-8192",
+            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
             max_tokens=2000
@@ -139,7 +140,7 @@ Format definition: [{{"type": "DEFINITION", "term": "...", "definition": "..."}}
 
         client = rag_engine._get_client()
         response = client.chat.completions.create(
-            model="llama3-70b-8192",
+            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=3000
