@@ -155,6 +155,13 @@ http://localhost:8000/docs
 | `backend/railway.json` | **Committed** — Railway service config (PORT-aware Spring Boot start command) |
 | `frontend/railway.json` | **Committed** — Railway service config (VITE_API_URL build arg) |
 
+### Session 4 (2026-06-27) — Backend compile fixes (Railway deploy)
+| File | Change |
+|---|---|
+| `backend/.../service/QuizService.java` | Added missing `import com.notsy.dto.response.QuizQuestionResponse` — it's a top-level class, not nested in `QuizResponse`, so the wildcard `QuizResponse.*` didn't cover it |
+| `backend/.../a2a/A2ATaskHistoryController.java` | `user.getId()` returns `Long` but `A2ATask.userId` is `UUID`; replaced `UUID.fromString(...)` ternary with `new UUID(0, user.getId())` for deterministic mapping (both call sites) |
+| `backend/.../a2a/A2AController.java` | Added explicit `<Map<String,Object>>` type witness on `notFound().build()` so javac resolves the `Mono<ResponseEntity<Map<String,Object>>>` return type |
+
 **Phase C — Pre-go-live architectural fixes (all three now done)**
 | File | Change |
 |---|---|
