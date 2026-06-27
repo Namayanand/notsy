@@ -222,15 +222,17 @@ class VectorStore:
             logger.error(f"Error adding to curated base: {e}")
             return False
 
-    def delete_collection(self, topic_id: int) -> bool:
+    def delete_collection(self, topic_id: int) -> str:
+        collection_name = self._get_collection_name(topic_id)
         try:
-            collection_name = self._get_collection_name(topic_id)
             self.client.delete_collection(name=collection_name)
             logger.info(f"Deleted collection: {collection_name}")
-            return True
+            return "deleted"
+        except ValueError:
+            return "not_found"
         except Exception as e:
             logger.error(f"Error deleting collection topic_{topic_id}: {e}")
-            return False
+            return "error"
 
     def get_collection_count(self, topic_id: int) -> int:
         try:
