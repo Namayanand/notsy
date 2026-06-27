@@ -61,8 +61,9 @@ class OrchestratorGraph:
 
     def __init__(self):
         self._graph = None
+        self._compiled = None
         self.groq_api_key = os.getenv("GROQ_API_KEY", "")
-        self.groq_model = os.getenv("GROQ_MODEL", "llama-3-70b-8192")
+        self.groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
     async def close(self):
         pass
@@ -341,6 +342,12 @@ Respond ONLY with valid JSON:
 
         return routing.get(intent, "run_parallel_agents")
 
+    def get_compiled(self):
+        """Return the compiled graph, building it once on first call."""
+        if self._compiled is None:
+            self._compiled = self.build_graph().compile()
+        return self._compiled
+
     def build_graph(self) -> StateGraph:
         """Build the LangGraph"""
         graph = StateGraph(OrchestratorState)
@@ -425,11 +432,7 @@ async def run_orchestrator(
         "error": None
     }
 
-    # Build and run graph
-    graph = orchestrator.build_graph()
-    compiled = graph.compile()
-
-    result = await compiled.ainvoke(initial_state)
+    result = await orchestrator.get_compiled().ainvoke(initial_state)
 
     return {
         "response": result.get("final_response", ""),
@@ -441,7 +444,5 @@ async def run_orchestrator(
 
 
 def get_orchestrator_graph():
-    """Get the compiled orchestrator graph"""
-    orchestrator = get_orchestrator()
-    graph = orchestrator.build_graph()
-    return graph.compile()
+    """Get the compiled orchestrator graph (cached)."""
+    return get_orchestrator().get_compiled()

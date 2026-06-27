@@ -163,18 +163,18 @@ class MemoryStore:
                                content: str, metadata: Optional[Dict[str, Any]] = None):
         """Store memory entry in backend database"""
         try:
-            import requests
+            import httpx
             url = os.getenv("BACKEND_URL", "http://localhost:8080")
-            response = requests.post(
-                f"{url}/api/memory",
-                json={
-                    "userId": user_id,
-                    "memoryType": memory_type,
-                    "content": content,
-                    "metadata": metadata or {}
-                },
-                timeout=5
-            )
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.post(
+                    f"{url}/api/memory",
+                    json={
+                        "userId": user_id,
+                        "memoryType": memory_type,
+                        "content": content,
+                        "metadata": metadata or {}
+                    }
+                )
             return response.status_code == 200
         except Exception as e:
             logger.debug(f"Could not store in backend: {e}")

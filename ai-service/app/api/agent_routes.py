@@ -568,15 +568,16 @@ async def langchain_planner(user_id: int, goal: str):
 @router.get("/registry")
 async def get_agent_registry():
     """Get agent registry - returns LangChain and LangGraph as internal agents"""
+    service_url = os.getenv("AI_SERVICE_URL", "http://localhost:8000")
     agents = [
         {
             "name": "langchain",
-            "url": "http://localhost:8000",
+            "url": service_url,
             "card": {
                 "name": "langchain",
                 "description": "LangChain-based learning agent with tool use capabilities",
                 "version": "1.0.0",
-                "url": "http://localhost:8000",
+                "url": service_url,
                 "skills": [
                     {"id": "learning", "name": "General Learning", "description": "Helps with learning any topic"},
                     {"id": "tutoring", "name": "Tutoring", "description": "Explains concepts at various depth levels"},
@@ -587,12 +588,12 @@ async def get_agent_registry():
         },
         {
             "name": "langgraph",
-            "url": "http://localhost:8000",
+            "url": service_url,
             "card": {
                 "name": "langgraph",
                 "description": "LangGraph-based workflow agent with stateful learning pipelines",
                 "version": "1.0.0",
-                "url": "http://localhost:8000",
+                "url": service_url,
                 "skills": [
                     {"id": "learning_workflow", "name": "Learning Workflow", "description": "Full learning pipeline: plan -> retrieve -> tutor -> quiz -> track"},
                     {"id": "conditional_learning", "name": "Adaptive Learning", "description": "Adapts based on user performance"}
