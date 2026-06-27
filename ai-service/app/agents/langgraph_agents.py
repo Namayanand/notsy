@@ -722,9 +722,8 @@ def create_conditional_learning_graph() -> StateGraph:
     graph.add_edge("retriever", "tutor")
     graph.add_edge("tutor", "evaluator")
     graph.add_edge("evaluator", "memory")
-    graph.add_edge("memory", "retriever")  # Loop back to process next topic
 
-    # Add conditional routing
+    # Conditional routing from memory: loop back to retriever or finish
     graph.add_conditional_edges(
         "memory",
         is_learning_complete,
@@ -753,7 +752,7 @@ class LangGraphAgent:
 
     async def ainvoke_stream(self, initial_state: LearningState):
         """Run the graph with streaming"""
-        async for event in self.graph.ainvoke(initial_state):
+        async for event in self.graph.astream(initial_state):
             yield event
 
 
