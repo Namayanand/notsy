@@ -37,7 +37,7 @@ public class A2ATaskHistoryController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        UUID userId = user != null ? user.getId() : UUID.fromString("00000000-0000-0000-0000-000000000000");
+        UUID userId = user != null ? new UUID(0, user.getId()) : new UUID(0, 0);
 
         Page<A2ATask> taskPage = taskRepository.findByUserId(
                 userId,
@@ -64,7 +64,7 @@ public class A2ATaskHistoryController {
             @AuthenticationPrincipal User user,
             @RequestParam(defaultValue = "10") int limit) {
 
-        UUID userId = user != null ? user.getId() : UUID.fromString("00000000-0000-0000-0000-000000000000");
+        UUID userId = user != null ? new UUID(0, user.getId()) : new UUID(0, 0);
 
         List<A2ATask> tasks = taskRepository.findByUserIdOrderByCreatedAtDesc(userId)
                 .stream()

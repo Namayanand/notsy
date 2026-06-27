@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.notsy.dto.request.CreateQuizRequest;
 import com.notsy.dto.request.SubmitQuizAnswerRequest;
+import com.notsy.dto.response.QuizQuestionResponse;
 import com.notsy.dto.response.QuizResponse;
 import com.notsy.dto.response.QuizResponse.*;
 import com.notsy.entity.*;

@@ -73,7 +73,7 @@ public class A2AController {
                         "taskId", taskId,
                         "status", "cancelled"
                 )))
-                .defaultIfEmpty(ResponseEntity.notFound().build());
+                .defaultIfEmpty(ResponseEntity.<Map<String, Object>>notFound().build());
     }
 
     /**
