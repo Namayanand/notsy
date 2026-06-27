@@ -163,7 +163,13 @@ http://localhost:8000/docs
 | `backend/.../a2a/A2AController.java` | Added explicit `<Map<String,Object>>` type witness on `notFound().build()` so javac resolves the `Mono<ResponseEntity<Map<String,Object>>>` return type |
 | `backend/.../a2a/A2AController.java` | Force `Map.<String,Object>of()` type witness in `.map()` so javac infers correct `Mono<ResponseEntity<Map<String,Object>>>` chain |
 | `backend/.../security/SecurityConfig.java` | `setAllowedOrigins("*")` → `setAllowedOriginPatterns("*")` (Spring Security 6 rejects wildcard in the former); added `HttpMethod.OPTIONS, "/**"` to `permitAll()` so CORS preflight is never blocked by the auth filter |
-| `backend/.../config/CorsConfig.java` | **New file** — standalone `FilterRegistrationBean<CorsFilter>` at `Ordered.HIGHEST_PRECEDENCE`; runs before Spring Security's filter chain entirely, guaranteeing CORS headers on OPTIONS preflights regardless of security context |
+
+### Session 5 (2026-06-28) — Revert redundant CorsConfig; Railway port fix
+| File | Change |
+|---|---|
+| `backend/.../config/CorsConfig.java` | **REVERTED** — standalone `CorsFilter` at `HIGHEST_PRECEDENCE` was added chasing a Railway 502; real cause was Railway networking port set to 8090 while Tomcat listens on 8080. `SecurityConfig.java` CORS is sufficient. |
+
+**Railway port fix (manual):** Railway → backend → Settings → Networking → exposed port changed from 8090 → 8080. App responded immediately after.
 
 **Phase C — Pre-go-live architectural fixes (all three now done)**
 | File | Change |
@@ -240,13 +246,14 @@ After this, every push to `master` auto-deploys via `.github/workflows/deploy.ym
 - [x] Compile LangGraph graph once at startup in `orchestrator/graph.py`
 - [x] Replace hardcoded `localhost:8000` in `agent_routes.py get_agent_registry()`
 
-### Deployment (Phase B — manual setup by user, IN PROGRESS)
-- [ ] Create Railway project + add PostgreSQL + Redis plugins
-- [ ] Deploy AI service to Railway (root dir: `ai-service`) — set env vars incl. `AI_SERVICE_URL`
-- [ ] Deploy backend to Railway (root dir: `backend`) — set `AI_ORCHESTRATOR_URL` to AI service URL
-- [ ] Deploy frontend to Vercel (root dir: `frontend`) — set `VITE_API_URL` to backend URL
-- [ ] Update Railway AI service `ALLOWED_ORIGINS` with Vercel URL + redeploy
-- [ ] Add GitHub Actions secrets: `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`
+### Deployment (Phase B — DONE 2026-06-28)
+- [x] Create Railway project + add PostgreSQL + Redis plugins
+- [x] Deploy AI service to Railway (root dir: `ai-service`)
+- [x] Deploy backend to Railway (root dir: `backend`) — **port fix: Railway networking → 8080**
+- [x] Deploy frontend to Vercel (root dir: `frontend`) — linked via `vercel link` in `frontend/`
+- [ ] Update Railway AI service `ALLOWED_ORIGINS` with Vercel URL (`https://notsy-47rd.vercel.app`) + redeploy
+- [ ] Set `AI_SERVICE_URL` in Railway AI service vars to its own public URL
+- [ ] Add GitHub Actions secrets: `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID=team_ASRwFX08v6a3yxlrgqGQi2Zj`, `VERCEL_PROJECT_ID=prj_Hqqa3DK9g4g0A8TaNhgbVvlsNs7H`
 - [ ] End-to-end smoke test: register → login → notebook → upload PDF → chat
 
 ### Future
