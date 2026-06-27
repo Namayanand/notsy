@@ -23,4 +23,4 @@ python-socketio==5.11.0
 sse-starlette==2.1.0
 tenacity==8.3.0
 redis==5.0.1
-# ragas==0.1.21 — incompatible with langchain>=0.3 (requires langchain<0.3); install in a separate isolated env for offline evaluation only
+# ragas==0.1.21 — incompatible with langchain>=0.3 (requires langchain<0.3); install in a separate isolated env for offline evaluation only 
