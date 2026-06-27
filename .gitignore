@@ -2,6 +2,8 @@
 .env
 .env.local
 .env.*.local
+notsyenv/
+.env.example
 
 # IDE
 .idea/
@@ -27,5 +29,17 @@ logs/
 # Uploads
 uploads/
 
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# AI service data directories
+ai-service/chroma_db/
+ai-service/uploads/
+
 # Claude
 .claude/
+ai-service/TEST_RESULTS.md

@@ -57,7 +57,7 @@ export default function AgentGraph({ agents, tasks, onAgentClick }) {
     if (!nodes.find(n => n.type === 'orchestrator')) {
       nodes.push({
         name: 'Orchestrator',
-        url: 'http://localhost:8000',
+        url: import.meta.env.VITE_AI_URL || import.meta.env.VITE_API_URL || 'http://localhost:8000',
         type: 'orchestrator',
         x: width / 2,
         y: height / 2,

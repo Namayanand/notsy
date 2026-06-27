@@ -22,11 +22,11 @@ RUN mkdir -p /app/uploads
 # Copy the built jar
 COPY --from=builder /app/target/*.jar app.jar
 
-# Expose port
-EXPOSE 8080
-
-# Set environment
+# PORT is injected by Railway at runtime; default to 8080 for local Docker usage.
+ENV PORT=8080
 ENV JAVA_OPTS="-Xmx512m -Xms256m"
 
-# Run the application
-ENTRYPOINT ["java", "-jar", "app.jar"]
+EXPOSE ${PORT}
+
+# Pass $PORT to Spring Boot via server.port
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dserver.port=$PORT -jar app.jar"]

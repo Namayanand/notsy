@@ -21,12 +21,10 @@ COPY . .
 # Create directories
 RUN mkdir -p /app/uploads /app/chroma_db
 
-# Expose orchestrator port
-EXPOSE 8000
-
-# Set environment variables
+# PORT is injected by Railway at runtime; default to 8000 for local Docker usage.
+ENV PORT=8000
 ENV PYTHONUNBUFFERED=1
-ENV GROQ_MODEL=llama-3-70b-8192
+ENV GROQ_MODEL=llama-3.3-70b-versatile
 
-# Run the orchestrator
-CMD ["uvicorn", "orchestrator.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the orchestrator — uvicorn reads $PORT at startup
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT"]

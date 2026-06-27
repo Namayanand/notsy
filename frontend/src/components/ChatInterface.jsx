@@ -291,7 +291,7 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
 
     try {
       // Try streaming endpoint first
-      const streamUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/api/chat/${conversationId}/stream`;
+      const streamUrl = `${import.meta.env.VITE_API_URL || ''}/api/chat/${conversationId}/stream`;
 
       const response = await fetch(streamUrl, {
         method: 'POST',
@@ -460,7 +460,7 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
     setSending(true);
 
     try {
-      const streamUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/api/chat/${convId}/stream`;
+      const streamUrl = `${import.meta.env.VITE_API_URL || ''}/api/chat/${convId}/stream`;
 
       const history = [];
 

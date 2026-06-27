@@ -52,6 +52,10 @@ export const endSession = (sessionId) =>
   api.post(`${AGENT_BASE}/end-session/${sessionId}`);
 
 export const connectAgentStream = (sessionId) => {
-  const wsUrl = `${import.meta.env.VITE_WS_URL || 'ws://localhost:8000'}/agent/stream/${sessionId}`;
+  // Derive WebSocket URL from VITE_WS_URL, or fall back to converting VITE_API_URL
+  // (http → ws, https → wss). Default to localhost for local dev.
+  const httpBase = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+  const wsBase = import.meta.env.VITE_WS_URL || httpBase.replace(/^http/, 'ws');
+  const wsUrl = `${wsBase}/agent/stream/${sessionId}`;
   return new WebSocket(wsUrl);
 };
