@@ -41,9 +41,9 @@ notsy/
 │   │   └── services/       vector_store.py (ChromaDB wrapper)
 │   ├── orchestrator/       app.py, graph.py (LangGraph intent classifier)
 │   └── evaluation/         run.py (offline RAG eval — ragas not installed in main venv)
-├── .github/workflows/      deploy.yml — CI/CD for Railway + Vercel (untracked, needs commit)
+├── .github/workflows/      deploy.yml — CI/CD for Railway + Vercel (committed 2026-06-27)
 ├── .env.example            Root env example (GROQ key is placeholder — real key in ai-service/.env)
-└── docker-compose.yml      Local dev reference (has one naming bug — see Known Issues)
+└── docker-compose.yml      Local dev reference
 ```
 
 ---
@@ -134,6 +134,36 @@ http://localhost:8000/docs
 **Clean API paths after double-prefix fix:**
 `POST /search/semantic`, `POST /search/global`, `POST /embed`, `DELETE /embed/topic/{id}`, `GET /embed/status/{id}`
 
+### Session 3 (2026-06-27) — Phase A + Phase C pre-go-live fixes
+
+**Phase A — Version control / deployment config**
+| File | Change |
+|---|---|
+| `docker-compose.yml` | `VITE_API_BASE_URL` → `API_URL` (nginx reads `$API_URL`, not Vite build var) |
+| `docker-compose.yml` | GROQ_MODEL default `llama-3-70b-8192` → `llama-3.3-70b-versatile` |
+| `frontend/Dockerfile` | Added `ARG VITE_API_URL` baked at build time; `envsubst '$PORT $API_URL'` at runtime |
+| `frontend/nginx.conf` | `listen 3000` → `listen ${PORT}`; `proxy_pass http://backend:8080` → `proxy_pass ${API_URL}` |
+| `frontend/vite.config.js` | `loadEnv` so `VITE_API_URL` resolves correctly in proxy target |
+| `frontend/src/api/agents.js` | Derive WebSocket URL from `VITE_API_URL` when `VITE_WS_URL` absent |
+| `frontend/src/components/ChatInterface.jsx` | Remove hardcoded `localhost:8080` fallback in stream URLs |
+| `frontend/src/components/AgentNetwork/AgentGraph.jsx` | Orchestrator URL reads `VITE_AI_URL` / `VITE_API_URL` env vars |
+| `.env.example` | Scrubbed real GROQ API key → placeholder |
+| `ai-service/.env.example` | Scrubbed real GROQ key; added `GROQ_MODEL`, `BACKEND_URL`, `ALLOWED_ORIGINS`, `AI_SERVICE_URL` |
+| `.gitignore` | Removed `CLAUDE.md` exclusion so project instructions are tracked |
+| `.github/workflows/deploy.yml` | **Committed** — CI/CD pipeline for Railway (backend + AI) + Vercel (frontend) |
+| `ai-service/railway.json` | **Committed** — Railway service config (Dockerfile builder, restart policy) |
+| `backend/railway.json` | **Committed** — Railway service config (PORT-aware Spring Boot start command) |
+| `frontend/railway.json` | **Committed** — Railway service config (VITE_API_URL build arg) |
+
+**Phase C — Pre-go-live architectural fixes (all three now done)**
+| File | Change |
+|---|---|
+| `app/core/memory_store.py` | `_store_in_backend()`: sync `requests.post()` → async `httpx.AsyncClient` — no longer blocks event loop |
+| `orchestrator/graph.py` | Added `OrchestratorGraph.get_compiled()` — compiles graph once, caches in `self._compiled`; `run_orchestrator()` and `get_orchestrator_graph()` now use cached version |
+| `orchestrator/graph.py` | Hardcoded `"llama-3-70b-8192"` default → `"llama-3.3-70b-versatile"` in `__init__` |
+| `app/api/agent_routes.py` | `/registry` endpoint: hardcoded `http://localhost:8000` → `os.getenv("AI_SERVICE_URL", "http://localhost:8000")` |
+| `ai-service/.env.example` | Added `AI_SERVICE_URL=http://localhost:8000` |
+
 ---
 
 ## Deployment Plan
@@ -169,13 +199,13 @@ http://localhost:8000/docs
 
 After this, every push to `master` auto-deploys via `.github/workflows/deploy.yml`.
 
-### Phase C — Architectural Issues (fix 1-3 before go-live)
+### Phase C — Architectural Issues
 
-| Priority | Issue | File | Impact |
+| Priority | Issue | File | Status |
 |---|---|---|---|
-| 1 — fix before go-live | Sync `requests.post()` in async `_store_in_backend()` | `app/core/memory_store.py` | Blocks event loop on every backend callback |
-| 2 — fix before go-live | LangGraph graph recompiled on every request | `orchestrator/graph.py` | CPU spike under load |
-| 3 — fix before go-live | Hardcoded `http://localhost:8000` in `get_agent_registry()` | `app/api/agent_routes.py` | A2A registry returns wrong URLs in production |
+| 1 | Sync `requests.post()` in async `_store_in_backend()` | `app/core/memory_store.py` | **FIXED (Session 3)** — replaced with `httpx.AsyncClient` |
+| 2 | LangGraph graph recompiled on every request | `orchestrator/graph.py` | **FIXED (Session 3)** — `get_compiled()` caches compiled graph |
+| 3 | Hardcoded `http://localhost:8000` in `get_agent_registry()` | `app/api/agent_routes.py` | **FIXED (Session 3)** — reads `AI_SERVICE_URL` env var |
 | 4 — can wait | SentenceTransformer vectors computed then discarded | `app/core/embeddings.py` | Wasted compute only |
 | 5 — can wait | TTL silently ignored in `InMemoryStore` | `app/core/memory_store.py` | Memory leak risk |
 | 6 — can wait | Duplicate PDF parsing in `evaluation/run.py` | `evaluation/run.py` | Offline eval only |
@@ -184,29 +214,29 @@ After this, every push to `master` auto-deploys via `.github/workflows/deploy.ym
 
 ## Known Config Issues
 
-- `docker-compose.yml` frontend: `VITE_API_BASE_URL` should be `API_URL` (nginx uses `$API_URL`)
 - `ai-service/.env` is implicitly protected by root `.env` glob in `.gitignore` — safe, but adding an explicit entry would be clearer
 
 ---
 
 ## Next Steps
 
-### Immediate (Phase A)
-- [ ] Fix `docker-compose.yml` `VITE_API_BASE_URL` → `API_URL`
-- [ ] Commit all unstaged changes + untracked deployment files
-- [ ] Create GitHub remote + push
+### Phase A — DONE (2026-06-27)
+- [x] Fix `docker-compose.yml` `VITE_API_BASE_URL` → `API_URL`
+- [x] Commit all unstaged changes + untracked deployment files
+- [x] Push to GitHub remote
 
-### Before Go-Live (Phase C, issues 1-3)
-- [ ] Replace sync `requests.post()` with async `httpx` in `memory_store.py._store_in_backend()`
-- [ ] Compile LangGraph graph once at startup in `orchestrator/graph.py`
-- [ ] Replace hardcoded `localhost:8000` in `agent_routes.py get_agent_registry()`
+### Phase C issues 1-3 — DONE (2026-06-27)
+- [x] Replace sync `requests.post()` with async `httpx` in `memory_store.py._store_in_backend()`
+- [x] Compile LangGraph graph once at startup in `orchestrator/graph.py`
+- [x] Replace hardcoded `localhost:8000` in `agent_routes.py get_agent_registry()`
 
-### Deployment (Phase B — manual setup by user)
-- [ ] Create Railway account + project
-- [ ] Add PostgreSQL + Redis plugins
-- [ ] Deploy AI service + backend to Railway with env vars
-- [ ] Deploy frontend to Vercel
-- [ ] Wire GitHub Actions secrets
+### Deployment (Phase B — manual setup by user, IN PROGRESS)
+- [ ] Create Railway project + add PostgreSQL + Redis plugins
+- [ ] Deploy AI service to Railway (root dir: `ai-service`) — set env vars incl. `AI_SERVICE_URL`
+- [ ] Deploy backend to Railway (root dir: `backend`) — set `AI_ORCHESTRATOR_URL` to AI service URL
+- [ ] Deploy frontend to Vercel (root dir: `frontend`) — set `VITE_API_URL` to backend URL
+- [ ] Update Railway AI service `ALLOWED_ORIGINS` with Vercel URL + redeploy
+- [ ] Add GitHub Actions secrets: `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`
 - [ ] End-to-end smoke test: register → login → notebook → upload PDF → chat
 
 ### Future
