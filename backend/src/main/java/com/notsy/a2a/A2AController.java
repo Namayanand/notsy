@@ -69,7 +69,7 @@ public class A2AController {
     @DeleteMapping("/tasks/{taskId}")
     public Mono<ResponseEntity<Map<String, Object>>> cancelTask(@PathVariable String taskId) {
         return gatewayService.cancelTask(taskId)
-                .map(response -> ResponseEntity.ok(Map.of(
+                .map(response -> ResponseEntity.ok(Map.<String, Object>of(
                         "taskId", taskId,
                         "status", "cancelled"
                 )))
