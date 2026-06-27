@@ -1,14 +1,21 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Dict, Any
 
+VALID_FILE_TYPES = {"pdf", "image", "video", "link", "text"}
 
 class EmbedResourceRequest(BaseModel):
-    resource_id: int
+    resource_id: int = Field(..., gt=0)
     topic_id: int
     file_path: Optional[str] = None
     source_url: Optional[str] = None
-    file_type: str  # pdf, image, video, link, text
+    file_type: str = Field(..., pattern="^(pdf|image|video|link|text)$")
     user_id: int
+
+    @model_validator(mode="after")
+    def require_source(self):
+        if not self.file_path and not self.source_url:
+            raise ValueError("At least one of file_path or source_url must be provided")
+        return self
 
 
 class EmbedStatusResponse(BaseModel):
@@ -22,11 +29,13 @@ class ChatMessage(BaseModel):
     content: str
 
 
+VALID_LEARNING_MODES = {"GO_CRAZY", "DEV_MODE", "MASTER_THIS", "LAST_MINUTE", "TEACH_ME_TECH", "STUDY_GROUP"}
+
 class ChatRequest(BaseModel):
     topic_id: int
-    message: str
+    message: str = Field(..., min_length=1)
     history: List[ChatMessage] = Field(default_factory=list)
-    learning_mode: str = "MASTER_THIS"  # GO_CRAZY, DEV_MODE, MASTER_THIS, LAST_MINUTE, TEACH_ME_TECH, STUDY_GROUP
+    learning_mode: str = Field("MASTER_THIS", pattern="^(GO_CRAZY|DEV_MODE|MASTER_THIS|LAST_MINUTE|TEACH_ME_TECH|STUDY_GROUP)$")
     use_web_search: Optional[bool] = False
     explain_depth: Optional[str] = None  # None, "eli5", "deep"
     system_prompt: Optional[str] = None  # For branch context injection
