@@ -293,9 +293,13 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
       // Try streaming endpoint first
       const streamUrl = `${import.meta.env.VITE_API_URL || ''}/api/chat/${conversationId}/stream`;
 
+      const token = localStorage.getItem('accessToken');
       const response = await fetch(streamUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           message: sentInput,
           history: history,
@@ -464,9 +468,13 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
 
       const history = [];
 
+      const token = localStorage.getItem('accessToken');
       const response = await fetch(streamUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           message: message,
           history: history,

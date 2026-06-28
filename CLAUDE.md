@@ -171,6 +171,11 @@ http://localhost:8000/docs
 
 **Railway port fix (manual):** Railway → backend → Settings → Networking → exposed port changed from 8090 → 8080. App responded immediately after.
 
+### Session 6 (2026-06-28) — Chat stream 403 fix (frontend auth header)
+| File | Change |
+|---|---|
+| `frontend/src/components/ChatInterface.jsx` | Both raw `fetch()` calls to `/api/chat/{id}/stream` now attach `Authorization: Bearer ${localStorage.accessToken}` (lines ~294 and ~463). They previously sent only `Content-Type`, bypassing the axios `client.js` interceptor that injects the JWT — so the backend correctly rejected the unauthenticated request with **403**. Not a backend bug; `StreamingChatController` requires `@AuthenticationPrincipal User` under `anyRequest().authenticated()`. |
+
 **Phase C — Pre-go-live architectural fixes (all three now done)**
 | File | Change |
 |---|---|
