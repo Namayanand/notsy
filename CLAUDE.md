@@ -184,6 +184,14 @@ http://localhost:8000/docs
 
 **TODO (backend, future):** either implement real token streaming (wire `StreamingHandler` to the WS handshake + AI proxy, emit SSE or WS tokens) or delete the dead `StreamingChatController`/`StreamingHandler` stubs.
 
+### Session 8 (2026-06-28) — Chat bubble shows "I apologize…" (AI service hop fails)
+**Not a code bug.** After the Session 6/7 fixes, `POST /api/topics/{t}/conversations/{c}/chat` returns 200 but the assistant content is the backend fallback string `"I apologize, but I encountered an error processing your request."` (`AIProxyService.chat` catch block, line ~116). That branch only runs when the backend → AI service call throws.
+**Root cause:** backend's AI base URL is `app.ai.service-url` ← env var **`AI_SERVICE_URL`** (default `http://localhost:8000`). On Railway this must point at the AI service; if it's unset (or set under the wrong name `AI_ORCHESTRATOR_URL`), or the AI service is stopped, the call fails and the apology is returned with HTTP 200.
+**Fix (deployment, no code):**
+1. Ensure the Railway **AI service is running** (all three were stopped during testing).
+2. Set **`AI_SERVICE_URL`** on the Railway **backend** service = AI service URL (internal `http://<ai-svc>.railway.internal:8000` or public). Corrected the env-var name in the Phase B plan above.
+3. AI service `/chat` route confirmed present (`app/api/chat.py`, router mounted with no prefix → `POST /chat`).
+
 **Phase C — Pre-go-live architectural fixes (all three now done)**
 | File | Change |
 |---|---|
@@ -217,7 +225,7 @@ http://localhost:8000/docs
    - `SPRING_DATASOURCE_URL/USERNAME/PASSWORD` from PostgreSQL plugin
    - `SPRING_REDIS_HOST` from Redis plugin
    - `JWT_SECRET` (generate strong random string)
-   - `AI_ORCHESTRATOR_URL` = Railway AI service public URL
+   - `AI_SERVICE_URL` = Railway AI service URL (internal `http://<ai-svc>.railway.internal:8000` or public). **NOT** `AI_ORCHESTRATOR_URL` — `WebClientConfig`/`AIProxyService` read `app.ai.service-url` ← `${AI_SERVICE_URL:http://localhost:8000}`. Wrong name → backend silently calls localhost:8000 → chat returns the "I apologize, but I encountered an error" fallback with HTTP 200.
 5. Get Railway token → add as `RAILWAY_TOKEN` in GitHub repo secrets
 
 **Vercel:**
