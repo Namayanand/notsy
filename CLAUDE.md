@@ -184,13 +184,25 @@ http://localhost:8000/docs
 
 **TODO (backend, future):** either implement real token streaming (wire `StreamingHandler` to the WS handshake + AI proxy, emit SSE or WS tokens) or delete the dead `StreamingChatController`/`StreamingHandler` stubs.
 
-### Session 8 (2026-06-28) — Chat bubble shows "I apologize…" (AI service hop fails)
-**Not a code bug.** After the Session 6/7 fixes, `POST /api/topics/{t}/conversations/{c}/chat` returns 200 but the assistant content is the backend fallback string `"I apologize, but I encountered an error processing your request."` (`AIProxyService.chat` catch block, line ~116). That branch only runs when the backend → AI service call throws.
+### Session 8 (2026-06-28) — Chat bubble shows "I apologize…" (backend→AI redirect not followed)
+**Symptom:** After the Session 6/7 fixes, `POST /api/topics/{t}/conversations/{c}/chat` returns 200 but the assistant content is the backend fallback string `"I apologize, but I encountered an error processing your request."` (`AIProxyService.chat` catch block, line ~116). That branch runs when the backend → AI service call throws (or returns null). Initially looked like pure config; turned out to also need a WebClient code fix (see ACTUAL ROOT CAUSE below).
 **Root cause:** backend's AI base URL is `app.ai.service-url` ← env var **`AI_SERVICE_URL`** (default `http://localhost:8000`). On Railway this must point at the AI service; if it's unset (or set under the wrong name `AI_ORCHESTRATOR_URL`), or the AI service is stopped, the call fails and the apology is returned with HTTP 200.
 **Fix (deployment, no code):**
 1. Ensure the Railway **AI service is running** (all three were stopped during testing).
 2. Set **`AI_SERVICE_URL`** on the Railway **backend** service = AI service URL (internal `http://<ai-svc>.railway.internal:8000` or public). Corrected the env-var name in the Phase B plan above.
 3. AI service `/chat` route confirmed present (`app/api/chat.py`, router mounted with no prefix → `POST /chat`).
+
+**ACTUAL ROOT CAUSE (RESOLVED):** Backend's `AI_SERVICE_URL` was `http://notsy-production.up.railway.app`. Railway's edge returns a **301 redirect** `http://` → `https://`. Spring's `WebClient` (Reactor Netty) **does not follow redirects by default**, and a 3xx is not caught by `onStatus(HttpStatusCode::isError)`, so the chain completed with an **empty body** → `bodyToMono(Map.class).block()` returned **null** → NPE at `AIProxyService.java:100` (`response.get("response")`) → outer catch returned the apology with HTTP 200. Confirmed by `httpx.post('http://...', follow_redirects=False)` → `301` with `location: https://...`.
+| File | Change |
+|---|---|
+| `backend/.../config/WebClientConfig.java` | `HttpClient.create()` → added `.followRedirect(true)` so the AI WebClient follows Railway's 301 http→https (and any future redirect). Makes the backend resilient to an `http://` `AI_SERVICE_URL`. |
+| `backend/.../service/AIProxyService.java` | `chat()`: added null-guard after `.block()` — if `response == null`, log a clear "empty body / likely unfollowed redirect, check AI_SERVICE_URL https" message and return the apology gracefully instead of an opaque NPE. |
+
+**Also recommended:** set `AI_SERVICE_URL=https://notsy-production.up.railway.app` (https, no trailing slash/path) on the backend so the redirect isn't even needed.
+
+**Diagnosis method (for reference):** Railway *edge* logs only show HTTP status, not the app exception. Confirmed the AI service was 100% healthy by shelling into its container and running, in order: (1) direct Groq call — OK; (2) `vector_store.query` — returns empty cleanly (no collection, expected); (3) `rag_engine.chat(...)` directly — real answer; (4) `httpx.post('http://localhost:$PORT/chat', ...)` and the **public https** URL — both 200 + real answer. Since every AI-service path worked, the fault was isolated to the backend→AI hop. The decisive evidence was the **backend application log** (`Error calling AI chat service` → `NullPointerException ... response is null`), NOT the edge logs. NOTE: both the AI service (`chat.py:38`, `rag_engine.py:518`) **and** the backend (`AIProxyService.chat`) return the *same* "I apologize…" string, so the message alone never revealed which side failed — that's why isolation was needed.
+
+**Security reminder:** the AI service container still holds the **leaked** `GROQ_API_KEY` (`gsk_hen9Rb…`, exposed in an earlier session). It works but must be rotated on the Groq console + updated in Railway.
 
 **Phase C — Pre-go-live architectural fixes (all three now done)**
 | File | Change |

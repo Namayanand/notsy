@@ -22,7 +22,9 @@ public class WebClientConfig {
         return WebClient.builder()
                 .baseUrl(aiServiceUrl)
                 .clientConnector(new ReactorClientHttpConnector(
-                        HttpClient.create().responseTimeout(Duration.ofSeconds(120))
+                        HttpClient.create()
+                                .followRedirect(true)
+                                .responseTimeout(Duration.ofSeconds(120))
                 ))
                 .build();
     }

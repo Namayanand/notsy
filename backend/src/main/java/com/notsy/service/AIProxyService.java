@@ -97,6 +97,16 @@ public class AIProxyService {
                     .bodyToMono(Map.class)
                     .block();
 
+            if (response == null) {
+                log.error("AI chat service returned an empty body (no error status). " +
+                        "Likely an unfollowed redirect — verify AI_SERVICE_URL uses https:// and points at the AI service. URL={}", aiServiceUrl);
+                return ChatResponse.builder()
+                        .response("I apologize, but I encountered an error processing your request. Please try again.")
+                        .sources(Collections.emptyList())
+                        .tokensUsed(0)
+                        .build();
+            }
+
             String responseText = (String) response.get("response");
             int tokensUsed = response.get("tokens_used") != null ? ((Number) response.get("tokens_used")).intValue() : 0;
 
