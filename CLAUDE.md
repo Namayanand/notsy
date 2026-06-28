@@ -176,6 +176,14 @@ http://localhost:8000/docs
 |---|---|
 | `frontend/src/components/ChatInterface.jsx` | Both raw `fetch()` calls to `/api/chat/{id}/stream` now attach `Authorization: Bearer ${localStorage.accessToken}` (lines ~294 and ~463). They previously sent only `Content-Type`, bypassing the axios `client.js` interceptor that injects the JWT — so the backend correctly rejected the unauthenticated request with **403**. Not a backend bug; `StreamingChatController` requires `@AuthenticationPrincipal User` under `anyRequest().authenticated()`. |
 
+### Session 7 (2026-06-28) — Chat shows blank reply (stream endpoint is a dead stub)
+**Root cause:** `StreamingChatController` `/api/chat/{id}/stream` is not actually a stream — it returns a static JSON map `{status, websocketUrl, conversationId}` and never invokes the AI. The intended WebSocket flow is unimplemented: `StreamingHandler.registerSession/sendToken/sendDone` have **zero callers**, so no tokens are ever generated or sent. The frontend's `fetch` got a `200` (JSON), entered its streaming branch (`response.ok && response.body`), found no `data:` lines, and rendered an empty assistant bubble — never falling back.
+| File | Change |
+|---|---|
+| `frontend/src/components/ChatInterface.jsx` | Both stream branches now gate on `content-type: text/event-stream` (`isEventStream`). Since the stub returns `application/json`, both fall through to the existing working `chat()` call → `POST /api/topics/{topicId}/conversations/{conversationId}/chat` (real AI response via `ConversationController.chat`). Streaming code preserved for if/when the backend implements real SSE. |
+
+**TODO (backend, future):** either implement real token streaming (wire `StreamingHandler` to the WS handshake + AI proxy, emit SSE or WS tokens) or delete the dead `StreamingChatController`/`StreamingHandler` stubs.
+
 **Phase C — Pre-go-live architectural fixes (all three now done)**
 | File | Change |
 |---|---|

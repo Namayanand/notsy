@@ -309,7 +309,10 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
         }),
       });
 
-      if (response.ok && response.body) {
+      // Only treat as a token stream if the backend actually streams (text/event-stream).
+      // The /stream endpoint currently returns a static JSON pointer, so fall through to chat().
+      const isEventStream = response.headers.get('content-type')?.includes('text/event-stream');
+      if (response.ok && response.body && isEventStream) {
         // Streaming response
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -485,7 +488,9 @@ export default function ChatInterface({ topic, conversationId, onBack }) {
         }),
       });
 
-      if (response.ok && response.body) {
+      // Only treat as a token stream if the backend actually streams (text/event-stream).
+      const isEventStream = response.headers.get('content-type')?.includes('text/event-stream');
+      if (response.ok && response.body && isEventStream) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullContent = '';
