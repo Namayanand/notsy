@@ -204,7 +204,16 @@ http://localhost:8000/docs
 
 **Security reminder:** the AI service container still holds the **leaked** `GROQ_API_KEY` (`gsk_hen9Rb…`, exposed in an earlier session). It works but must be rotated on the Groq console + updated in Railway.
 
-**Phase C — Pre-go-live architectural fixes (all three now done)**
+### Session 9 (2026-06-28) — Phase C architectural issues 4-6
+| File | Change |
+|---|---|
+| `app/core/embeddings.py` | `embed_resource()`: removed the redundant `self.model.encode(texts)` — the result was discarded and ChromaDB re-embeds the same texts with its own default `all-MiniLM-L6-v2` function (and `query()` uses that same function, so pre-encoding would have to match Chroma's space anyway). Made `Embeddings.model` a lazy `@property` so the embed path no longer eager-loads SentenceTransformer at import; `memory_store` still loads it via `get_embedding_model()` when needed. |
+| `app/core/memory_store.py` | `InMemoryStore` now honors `ttl`: entries stored as `(value, expires_at_monotonic)`; `_purge_expired()` drops expired keys on every access (and removes empty sessions). `ttl<=0` = no expiry. Prevents unbounded session-store growth. Added `import time`, `Tuple` typing. |
+| `evaluation/run.py` | `load_and_index_pdf()` no longer reimplements PDF parse/chunk with a bespoke `fitz` loop — it reuses `DocumentLoader.load_pdf(path)[:MAX_CHUNKS]` and builds metadatas from the returned chunks. Single source of truth for parsing/chunking; keeps the 50-chunk memory cap. |
+
+**Verified:** all three `py_compile` clean; `InMemoryStore` TTL behavior unit-tested (set/get, ttl<=0 no-expiry, forced-expiry purge, delete) — PASS.
+
+**Phase C — Pre-go-live architectural fixes (issues 1-3, done earlier)**
 | File | Change |
 |---|---|
 | `app/core/memory_store.py` | `_store_in_backend()`: sync `requests.post()` → async `httpx.AsyncClient` — no longer blocks event loop |
@@ -255,9 +264,9 @@ After this, every push to `master` auto-deploys via `.github/workflows/deploy.ym
 | 1 | Sync `requests.post()` in async `_store_in_backend()` | `app/core/memory_store.py` | **FIXED (Session 3)** — replaced with `httpx.AsyncClient` |
 | 2 | LangGraph graph recompiled on every request | `orchestrator/graph.py` | **FIXED (Session 3)** — `get_compiled()` caches compiled graph |
 | 3 | Hardcoded `http://localhost:8000` in `get_agent_registry()` | `app/api/agent_routes.py` | **FIXED (Session 3)** — reads `AI_SERVICE_URL` env var |
-| 4 — can wait | SentenceTransformer vectors computed then discarded | `app/core/embeddings.py` | Wasted compute only |
-| 5 — can wait | TTL silently ignored in `InMemoryStore` | `app/core/memory_store.py` | Memory leak risk |
-| 6 — can wait | Duplicate PDF parsing in `evaluation/run.py` | `evaluation/run.py` | Offline eval only |
+| 4 | SentenceTransformer vectors computed then discarded | `app/core/embeddings.py` | **FIXED (Session 9)** — removed redundant `model.encode()` in `embed_resource` (ChromaDB embeds with its own default all-MiniLM-L6-v2); model now lazy-loaded |
+| 5 | TTL silently ignored in `InMemoryStore` | `app/core/memory_store.py` | **FIXED (Session 9)** — entries stored as `(value, expires_at)`; expired keys purged on access |
+| 6 | Duplicate PDF parsing in `evaluation/run.py` | `evaluation/run.py` | **FIXED (Session 9)** — `load_and_index_pdf` now reuses `DocumentLoader.load_pdf` (keeps `MAX_CHUNKS` cap) |
 
 ---
 
@@ -290,5 +299,5 @@ After this, every push to `master` auto-deploys via `.github/workflows/deploy.ym
 - [ ] End-to-end smoke test: register → login → notebook → upload PDF → chat
 
 ### Future
-- [ ] Architectural issues 4-6 (lower priority)
+- [x] Architectural issues 4-6 (Session 9, 2026-06-28)
 - [ ] Backend Spring Boot deep-dive sessions (collaborative learning)

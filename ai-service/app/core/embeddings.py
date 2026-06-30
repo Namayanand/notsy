@@ -30,7 +30,16 @@ def get_embedding_model():
 
 class Embeddings:
     def __init__(self):
-        self.model = get_embedding_model()
+        self._model = None
+
+    @property
+    def model(self):
+        # Lazily load the SentenceTransformer model. The resource-embedding path
+        # below does NOT need it (ChromaDB embeds chunks with its own default
+        # all-MiniLM-L6-v2 function), so this only loads if embed_texts() is used.
+        if self._model is None:
+            self._model = get_embedding_model()
+        return self._model
 
     def embed_resource(
         self,
@@ -76,10 +85,10 @@ class Embeddings:
                 }
                 metadatas.append(metadata)
 
-            # Generate embeddings
-            embeddings = self.model.encode(texts, show_progress_bar=False)
-
-            # Store in ChromaDB
+            # Store in ChromaDB. The collection's default embedding function
+            # (all-MiniLM-L6-v2) embeds these chunks, and query() uses the same
+            # function — so we must NOT pre-encode here (it would be redundant
+            # compute and would also have to match Chroma's embedding space).
             success = vector_store.add_documents(topic_id, texts, metadatas)
 
             if success:

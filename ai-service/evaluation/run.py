@@ -45,54 +45,22 @@ def load_dataset(path: Path) -> List[Dict[str, Any]]:
 
 
 def load_and_index_pdf(path: Path) -> List[Dict[str, Any]]:
-    """Load PDF, extract chunks, and index into vector store."""
-    import fitz
+    """Load PDF via the shared DocumentLoader and index into the vector store."""
+    from app.core.document_loader import DocumentLoader
 
     print(f"   Loading PDF: {path}")
 
-    # Load PDF with PyMuPDF directly - process page by page to avoid memory issues
-    doc = fitz.open(str(path))
-    total_pages = len(doc)
+    MAX_CHUNKS = 50  # Cap to bound memory / embedding cost for the eval
 
-    chunks = []
-    metadatas = []
-    chunk_index = 0
+    # Reuse the production PDF parsing + chunking instead of a bespoke fitz copy.
+    chunks_data = DocumentLoader.load_pdf(str(path))[:MAX_CHUNKS]
 
-    # Use larger chunks to reduce memory - fewer embeddings needed
-    CHUNK_SIZE = 2000
-    MAX_CHUNKS = 50  # Limit total chunks to avoid memory issues
-
-    for page_num in range(total_pages):
-        if len(chunks) >= MAX_CHUNKS:
-            break
-
-        page = doc[page_num]
-        text = page.get_text()
-
-        if not text or not text.strip():
-            continue
-
-        # Simple chunking - split by size
-        start = 0
-        while start < len(text):
-            if len(chunks) >= MAX_CHUNKS:
-                break
-
-            end = min(start + CHUNK_SIZE, len(text))
-            chunk_text = text[start:end].strip()
-
-            if chunk_text and len(chunk_text) > 100:  # Skip very small chunks
-                chunks.append(chunk_text)
-                metadatas.append({
-                    "source": str(path),
-                    "page": page_num,
-                    "chunk_index": chunk_index
-                })
-                chunk_index += 1
-
-            start = end
-
-    doc.close()
+    chunks = [c["text"] for c in chunks_data]
+    metadatas = [{
+        "source": str(path),
+        "page": c["page"],
+        "chunk_index": c["chunk_index"],
+    } for c in chunks_data]
 
     # Clear existing data
     try:
@@ -102,7 +70,7 @@ def load_and_index_pdf(path: Path) -> List[Dict[str, Any]]:
         pass
 
     vector_store.add_documents(EVAL_TOPIC_ID, chunks, metadatas)
-    print(f"   Indexed {len(chunks)} chunks from {total_pages} pages")
+    print(f"   Indexed {len(chunks)} chunks")
     return chunks
 
 

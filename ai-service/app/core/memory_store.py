@@ -1,7 +1,8 @@
 import os
 import json
+import time
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -11,25 +12,42 @@ EMBEDDINGS_AVAILABLE = None
 
 
 class InMemoryStore:
-    """In-memory fallback for session storage"""
+    """In-memory fallback for session storage with per-key TTL expiry."""
 
     def __init__(self):
-        self._store: Dict[str, Dict[str, Any]] = {}
+        # session_id -> { key: (value, expires_at_monotonic | None) }
+        self._store: Dict[str, Dict[str, Tuple[Any, Optional[float]]]] = {}
+
+    def _purge_expired(self, session_id: str):
+        """Drop expired keys for a session; remove the session if it empties."""
+        session = self._store.get(session_id)
+        if not session:
+            return
+        now = time.monotonic()
+        expired = [k for k, (_, exp) in session.items() if exp is not None and exp <= now]
+        for k in expired:
+            del session[k]
+        if not session:
+            self._store.pop(session_id, None)
 
     async def set_session_context(self, session_id: str, key: str, value: Any, ttl: int = 3600):
         if session_id not in self._store:
             self._store[session_id] = {}
-        self._store[session_id][key] = value
+        # ttl <= 0 means "no expiry"; otherwise compute an absolute expiry.
+        expires_at = time.monotonic() + ttl if ttl and ttl > 0 else None
+        self._store[session_id][key] = (value, expires_at)
 
     async def get_session_context(self, session_id: str, key: str) -> Any:
-        return self._store.get(session_id, {}).get(key)
+        self._purge_expired(session_id)
+        entry = self._store.get(session_id, {}).get(key)
+        return entry[0] if entry is not None else None
 
     async def get_all_session_context(self, session_id: str) -> Dict[str, Any]:
-        return self._store.get(session_id, {})
+        self._purge_expired(session_id)
+        return {k: v for k, (v, _) in self._store.get(session_id, {}).items()}
 
     async def delete_session(self, session_id: str):
-        if session_id in self._store:
-            del self._store[session_id]
+        self._store.pop(session_id, None)
 
 
 class MemoryStore:
